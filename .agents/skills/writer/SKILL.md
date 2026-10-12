@@ -1,0 +1,90 @@
+---
+name: writer
+description: Master orchestrator skill for text transformation, speech detranscription, narrative restructuring, and article generation. Coordinates the Writer ecosystem subskills (writer-detranscriptor and future writer-* extensions) following DDD and Clean Architecture principles. Trigger whenever the user asks to process, detranscribe, format, or generate structured articles using the Writer skill framework or mentions writer-something subskills.
+---
+
+# Writer — Master Orchestrator Skill
+
+## Overview
+
+`writer` is the master orchestrator skill for high-performance text engineering, speech-to-article transformation, and domain-driven content structuring. Inspired by the `stangler-doctor` committee pattern and `ghost-writer` architecture, `writer` manages the end-to-end lifecycle of raw audio transcriptions, speech logs, and unstructured text drafts.
+
+It coordinates specialized `writer-*` subskills to convert chaotic spoken or draft material into clean, factual, highly readable Markdown articles encapsulated within strict output rules.
+
+---
+
+## The Writer Committee (Sub-Skills Registry)
+
+| Phase / Role | Subskill Name | Target Path | Core Focus & Trigger |
+|--------------|---------------|-------------|----------------------|
+| **Phase 1: Speech Detranscription** | `writer-detranscriptor` | `../writer-detranscriptor/SKILL.md` | Purges oralities, hesitations, filler words, and first-person dialogue. Performs fact-checking and temporal/logical restructuring. |
+| **Phase 2: Conceptual & Fact Expansion** | `writer-expander` | `../writer-expander/SKILL.md` | Performs 3-pass gap analysis (Socratic audit + historical-scientific mapping), enriching text with statistics, concrete examples, and non-confrontational persuasion. |
+| **Phase 3: Structural Downgrading** *(Extension)* | `writer-downgrader` | `../writer-downgrader/SKILL.md` | De-bloats overwritten text, delegating tangential details to structured footnotes or appendices. |
+| **Phase 4: Semantic Extraction** *(Extension)* | `writer-extractor` | `../writer-extractor/SKILL.md` | Extracts entities, concepts, timelines, and causal relationships into structured knowledge graphs. |
+
+---
+
+## Core System Directives & Architectural Constraints
+
+1. **Purity of Narrative Prose**:
+   - The output of the Writer ecosystem must consist exclusively of structured hierarchical narrative paragraphs (`#`, `##`, `###`).
+   - Unless explicitly instructed otherwise by a specific subskill rule, output must **never** contain tables, diagrams, lists, bullet points, LaTeX formulas, or raw code blocks.
+
+2. **Strict Output Envelope (XML Contract)**:
+   - When executing subskills like `writer-detranscriptor` or `writer-expander`, all processed content must be strictly encapsulated inside XML root tags:
+     ```xml
+     <config_file>
+     # Heading 1
+     narrative text...
+     </config_file>
+     ```
+   - **No Conversational Noise**: No intro comments, no outro summaries, no external video/reading recommendations, and no conversational wrap-up inside or outside the XML envelope.
+
+3. **Vocal & Noise Suppression**:
+   - Transform subjective first-person spoken accounts into third-person factual narrative.
+   - Eliminate filler words ("hã", "tipo", "com certeza", "como eu disse"), false starts, and direct audience hooks ("veja bem", "se você parar para pensar").
+
+4. **Logical & Chronological Reordering**:
+   - Reconstruct non-linear speech (flashbacks, tangents, anticipations) into strict linear chronological or logical conceptual sequences.
+
+5. **Fact-Checking & Entity Resolution**:
+   - Resolve phonetically distorted names, dates, technical terms, and proper nouns against verifiable sources. Never discard unknown names as typos without contextual verification.
+
+---
+
+## Orchestration Flow & Execution Modes
+
+When `writer` is invoked, evaluate the user request and route execution:
+
+### 1. Direct Detranscription Mode (`writer-detranscriptor`)
+- **Trigger**: User provides raw speech transcription, audio log, lecture transcript, or asks for detranscription.
+- **Action**: Invoke `writer-detranscriptor`, applying noise suppression, "Expert Partner" tone, logical reordering, normative typography, and `<config_file>` XML envelope wrapping.
+
+### 2. Direct Expansion Mode (`writer-expander`)
+- **Trigger**: User requests conceptual gap analysis, historical-scientific audit, factual expansion, or non-confrontational persuasive journalistic reporting.
+- **Action**: Invoke `writer-expander`, executing the silent 3-pass gap analysis, deep factual web validation, numbered footnotes allocation, and `<config_file>` XML output wrapping.
+
+### 3. Multi-Stage Pipeline Mode (Chained Execution)
+- **Pipeline Order**: `writer-detranscriptor` → `writer-expander` → `writer-downgrader` → `writer-extractor`.
+- **Data Transfer**: Subskills read and write directly to Markdown files in the designated workspace.
+
+---
+
+## Workspace Strategy & Storage Conventions
+
+All workspace artifacts generated by the `writer` skill family should be organized under:
+
+- **Base Directory**: `playground/writer/<topic_slug>/`
+- **Output Files**:
+  - `01_raw_transcript.md` (Raw source input)
+  - `02_detranscribed.md` (Output from `writer-detranscriptor`)
+  - `03_final_article.md` (Final consolidated output)
+
+---
+
+## Operational Execution Steps
+
+1. **Identify Target Subskill**: Match user prompt to the appropriate `writer-*` subskill.
+2. **Load Subskill Directives**: Read the corresponding `SKILL.md` from `.agents/skills/writer-<subskill>/SKILL.md`.
+3. **Execute Transformation**: Apply all domain rules, tone constraints, typography guidelines, and structural reordering.
+4. **Enforce Envelope**: Wrap the final result inside `<config_file>` XML tags with zero leading/trailing meta-conversational text.
