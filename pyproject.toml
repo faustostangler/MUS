@@ -95,5 +95,14 @@ mypy_path = "src"
 exclude = ["legacy/", "sandbox/", ".agents/"]
 
 [[tool.mypy.overrides]]
-module = ["pyworld.*", "soundfile.*", "librosa.*", "pretty_midi.*", "scipy.*"]
+module = [
+    "pyworld.*",
+    "soundfile.*",
+    "librosa.*",
+    "pretty_midi.*",
+    "scipy.*",
+    "yt_dlp.*",
+    "demucs.*",
+    "torch.*",
+]
 ignore_missing_imports = true
