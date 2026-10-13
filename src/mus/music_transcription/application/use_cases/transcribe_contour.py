@@ -6,6 +6,7 @@ from pathlib import Path
 from mus.music_transcription.application.ports import MidiWriterPort
 from mus.music_transcription.domain.hysteresis_segmenter import HysteresisSegmenter
 from mus.music_transcription.infrastructure.pretty_midi_io import PrettyMidiIO
+from mus.shared_kernel.audio import AudioSignal
 from mus.shared_kernel.notes import NoteSequence
 from mus.shared_kernel.pitch import PitchContour
 
@@ -18,6 +19,10 @@ class TranscribeContourCommand:
     tempo_bpm: float = 120.0
     output_midi_path: Path | None = None
     program_number: int = 52  # Default Choir Aahs (GM 52)
+    signal: AudioSignal | None = None
+    extract_pitch_bends: bool = False
+    quantize: bool = False
+    grid_division: int = 16
 
 
 class TranscribeContour:
@@ -36,6 +41,10 @@ class TranscribeContour:
         sequence = self._segmenter.segment(
             contour=command.contour,
             tempo_bpm=command.tempo_bpm,
+            signal=command.signal,
+            extract_pitch_bends=command.extract_pitch_bends,
+            quantize=command.quantize,
+            grid_division=command.grid_division,
         )
 
         if command.output_midi_path:

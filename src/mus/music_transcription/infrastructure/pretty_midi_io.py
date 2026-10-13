@@ -34,6 +34,10 @@ class PrettyMidiIO(MidiWriterPort, MidiReaderPort):
             )
             instrument.notes.append(pm_note)
 
+            for step_idx, bend in enumerate(n.pitch_bends):
+                bend_time = n.onset_seconds + step_idx * 0.01
+                instrument.pitch_bends.append(pretty_midi.PitchBend(pitch=bend, time=bend_time))
+
         midi.instruments.append(instrument)
         midi.write(str(output_path))
 

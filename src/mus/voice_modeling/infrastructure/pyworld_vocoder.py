@@ -79,10 +79,13 @@ class PyWorldVocoder:
 
         y = pw.synthesize(f0, sp, ap, fs, frame_period=fp)
 
-        # Normalization guard against clipping > 1.0
+        # S5-03 Normalization guard against clipping > 1.0 (-1.0 dBFS target)
         peak = float(np.max(np.abs(y)))
-        if peak > 1.0:
-            y = y / peak * 0.99
+        self.last_raw_peak = peak
+        self.last_synthesis_clipped = peak > 1.0
+        if self.last_synthesis_clipped:
+            target_peak = float(10.0 ** (-1.0 / 20.0))
+            y = (y / peak) * target_peak
 
         c_samples = np.ascontiguousarray(y, dtype=np.float64)
         return AudioSignal(samples=c_samples, sample_rate=voice.sample_rate)

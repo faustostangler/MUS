@@ -3,6 +3,7 @@
 import typer
 
 from mus.presentation.cli.pipeline import app as pipeline_app
+from mus.presentation.cli.render import app as render_app
 from mus.presentation.cli.transcribe import app as transcribe_app
 from mus.presentation.cli.voice import app as voice_app
 
@@ -14,6 +15,7 @@ app = typer.Typer(
 
 app.add_typer(voice_app, name="voice")
 app.add_typer(transcribe_app, name="transcribe")
+app.add_typer(render_app, name="render")
 app.add_typer(pipeline_app, name="pipeline")
 
 
