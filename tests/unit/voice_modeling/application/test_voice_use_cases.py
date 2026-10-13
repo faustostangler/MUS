@@ -1,13 +1,19 @@
 """Tests for DecomposeVoice and ResynthesizeVoice use cases using fakes."""
 
 import numpy as np
+import pytest
 
 from mus.shared_kernel.audio import AudioSignal
+from mus.shared_kernel.errors import WindowOutOfRangeError
 from mus.shared_kernel.pitch import PitchContour
 from mus.shared_kernel.units import FramePeriod, Hertz, SampleRate
 from mus.voice_modeling.application.use_cases.decompose_voice import (
     DecomposeVoice,
     DecomposeVoiceCommand,
+)
+from mus.voice_modeling.application.use_cases.reshape_formants import (
+    ReshapeFormants,
+    ReshapeFormantsCommand,
 )
 from mus.voice_modeling.application.use_cases.resynthesize_voice import (
     ResynthesizeVoice,
@@ -18,6 +24,7 @@ from mus.voice_modeling.domain.parametric_voice import (
     ParametricVoice,
     SpectralEnvelope,
 )
+from mus.voice_modeling.domain.phonetics import IPA_VOWEL_TABLE, VocalTractScale
 
 
 class FakeVocoder:
@@ -87,3 +94,38 @@ def test_resynthesize_voice_use_case() -> None:
     res = use_case.execute(ResynthesizeVoiceCommand(voice=voice))
     assert isinstance(res, AudioSignal)
     assert len(res) == 100
+
+
+def test_reshape_formants_use_case_with_vocal_tract_scale() -> None:
+    sr = SampleRate(44100)
+    f0 = PitchContour(np.full(10, 220.0, dtype=np.float64), FramePeriod(5.0))
+    sp = SpectralEnvelope(np.ones((10, 1025), dtype=np.float64))
+    ap = Aperiodicity(np.zeros((10, 1025), dtype=np.float64))
+    voice = ParametricVoice(f0=f0, sp=sp, ap=ap, sample_rate=sr)
+
+    use_case = ReshapeFormants()
+    reshaped = use_case.execute(
+        ReshapeFormantsCommand(voice=voice, tract_scale=VocalTractScale(1.18))
+    )
+
+    assert reshaped.sp is not voice.sp
+    assert reshaped.f0 is voice.f0
+
+
+def test_reshape_formants_out_of_range_window_raises() -> None:
+    sr = SampleRate(44100)
+    # 10 frames at 5ms = 0.05s
+    f0 = PitchContour(np.full(10, 220.0, dtype=np.float64), FramePeriod(5.0))
+    sp = SpectralEnvelope(np.ones((10, 1025), dtype=np.float64))
+    ap = Aperiodicity(np.zeros((10, 1025), dtype=np.float64))
+    voice = ParametricVoice(f0=f0, sp=sp, ap=ap, sample_rate=sr)
+
+    use_case = ReshapeFormants()
+    with pytest.raises(WindowOutOfRangeError):
+        use_case.execute(
+            ReshapeFormantsCommand(
+                voice=voice,
+                target_vowel=IPA_VOWEL_TABLE["o"],
+                vowel_window=(0.0, 1.0),  # Exceeds 0.05s
+            )
+        )
