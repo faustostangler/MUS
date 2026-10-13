@@ -58,10 +58,10 @@ external dependencies:
 | Context | Subdomain | Owns | External deps (infra only) |
 |---|---|---|---|
 | `voice_modeling` | **Core** | Parametric Voice, pitch modulation, formant estimation/warping, vowel substitution, Vocalise synthesis, resynthesis | `pyworld`, `soundfile`, `scipy` |
-| `music_transcription` | Supporting | Pitch Contour → Note Sequence (Hysteresis Segmentation), tempo grid, MIDI/score export | `pretty_midi`, `librosa` (tempo), `basic-pitch` (optional), MuseScore CLI |
+| `music_transcription` | Supporting | Pitch Contour → Note Sequence (Hysteresis Segmentation, vocal lead only), tempo grid, MIDI/score export (Choir Aahs GM 52) | `pretty_midi`, `librosa` (tempo), `basic-pitch` (optional), MuseScore CLI |
 | `instrument_rendering` | Generic | Note Sequence → audio via General MIDI SoundFont | `fluidsynth` CLI |
-| `shared_kernel` | — | Units (`Hertz`, `Seconds`, `Semitones`, `SampleRate`, `FramePeriod`, `TimeWindow`), `PitchContour`, `NoteEvent`, `NoteSequence`, `AudioSignal` | `numpy` only |
-| `stem_catalog` (ACL) | Generic | Read-only lookup of Vocal Stems produced by the legacy script | filesystem (`history.json`) |
+| `stem_separation` | Supporting | YouTube download (yt-dlp), AI tagging (Ollama) & 6-stem separation (Demucs) as a first-class hexagonal context | `yt_dlp`, `demucs`, `torch`, `urllib` (Ollama) |
+| `shared_kernel` | — | Units (`Hertz`, `Seconds`, `Semitones`, `SampleRate`, `FramePeriod`, `TimeWindow`), `PitchContour`, `NoteEvent`, `NoteSequence`, `AudioSignal`, `VocalStemRef` | `numpy` only |
 
 **D3 — All vocal synthesis goes through one Port.** Route 4B (MIDI → Vocalise) will NOT
 implement a separate glottal-pulse + IIR synthesizer. It will build a synthetic
@@ -88,23 +88,43 @@ Disk cache of a Parametric Voice uses `numpy.savez_compressed` with `float32` SP
 `allow_pickle=False` (never `pickle`).
 
 **D6 — Transcription tracks.** Track A (analytic, from Pitch Contour, Hysteresis
-Segmentation) is the default and a pure-domain algorithm. Track B (`basic-pitch`) is an
-**optional extra** (`mus[neural]`) behind `NeuralTranscriberPort`; if Spike-002 shows
-dependency conflicts, the adapter invokes `basic-pitch` in an isolated `uv tool`
-environment via subprocess (process-level ACL).
+Segmentation) is the default and a pure-domain algorithm, extracting strictly the
+monophonic Vocal Lead. Track B (`basic-pitch`) is an **optional extra** (`mus[neural]`)
+behind `NeuralTranscriberPort`; if Spike-002 shows dependency conflicts, the adapter
+invokes `basic-pitch` in an isolated `uv tool` environment via subprocess (process-level ACL).
 
 **D7 — Instrument rendering.** We will call the `fluidsynth` CLI through a subprocess
 adapter (`FluidSynthCliRenderer`) instead of `midi2audio`, because `midi2audio` is an
 unmaintained thin wrapper over the same CLI and adds no value; the SoundFont path is
-configuration (`MUS_SOUNDFONT_PATH`, default `FluidR3_GM.sf2`).
+configuration (`MUS_SOUNDFONT_PATH`, default `FluidR3_GM.sf2`). Default instrument is
+Choir Aahs (GM Program 52).
 
-**D8 — Legacy coexistence.** The legacy `separate_stems.py` is NOT refactored in this
-ADR. The new pipeline consumes its output read-only through `LegacyStemCatalogAdapter`
-(ACL translating `history.json` + file-naming convention into `VocalStemRef`). Strangling
-the legacy script into a `stem_separation` context is deferred to a future ADR.
+**D8 — Ingest & Stem Separation Integration (Hexagonal Context).** Instead of treating
+ingestion as a legacy external script, `stem_separation` becomes a native Bounded Context
+under `src/mus/stem_separation/` with clean Ports & Adapters (`AudioDownloaderPort`,
+`MetadataTaggerPort`, `StemSeparatorPort`, `CatalogHistoryPort`). Demucs generates 320 kbps MP3s
+for storage and library parity, and the vocoder decodes the vocal stem MP3 into C-contiguous
+`float64` in memory.
 
-**D9 — Presentation.** A thin `typer` CLI (`mus voice …`, `mus transcribe …`,
-`mus render …`) is the only entrypoint; one Dockerfile manifests all roles.
+**D9 — VRAM Management & Batch Ingestion.** To prevent GPU out-of-memory contention between
+Ollama (LLM tagging) and HTDemucs, the `stem_separation` workflow employs a two-phase
+transition: download and query Ollama for pending tracks, unload Ollama from VRAM
+(`keep_alive: 0` + `torch.cuda.empty_cache()`), and run Demucs with 100% dedicated GPU memory.
+
+**D10 — Multi-Language European IPA Vowel Inventory.** The domain models a unified IPA
+Vowel Table covering Portuguese, English, Spanish, French, and Italian:
+(/i/, /e/, /ɛ/, /a/, /ɔ/, /o/, /u/, /y/, /ø/, /œ/, /ə/, /ã/, /õ/, /ẽ/, /ĩ/, /ũ/).
+`FormantTarget` includes (F1, F2, F3) plus a `nasality` flag and bandwidth damping
+for nasal vowels (/ã, õ, ẽ, ĩ, ũ/). Language-specific aliases map local orthography/phonemes
+to canonical IPA symbols.
+
+**D11 — Vocal Lead Priority in Symbolic Transcription.** The transcriber focuses strictly
+on the primary vocal melody, filtering secondary harmonic noise, Demucs residual bleed,
+and backing vocals to maintain a clean monophonic `NoteSequence`.
+
+**D12 — Presentation & Unified Pipeline CLI.** The `typer` CLI exposes both granular subcommands
+(`mus ingest`, `mus voice`, `mus transcribe`, `mus render`) and an end-to-end command:
+`mus pipeline run <URL-or-file>` chaining Ingest → Stem Separation → Vocal Vocoder → MIDI / Score.
 
 ## Consequences
 
