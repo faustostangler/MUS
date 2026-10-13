@@ -85,6 +85,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D", "ANN", "PLR2004", "S101"]
+"src/mus/presentation/cli/**" = ["B008"]
 
 [tool.mypy]
 strict = true
