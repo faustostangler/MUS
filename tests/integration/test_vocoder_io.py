@@ -4,6 +4,7 @@ Covers: S1-01, S1-02, S1-03.
 """
 
 from pathlib import Path
+
 import numpy as np
 import pytest
 
