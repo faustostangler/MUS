@@ -11,6 +11,9 @@ def test_mus_settings_defaults_and_validation() -> None:
     assert settings.SAMPLE_RATE == 44100
     assert settings.FRAME_PERIOD_MS == 5.0
     assert settings.F0_FLOOR_HZ < settings.F0_CEIL_HZ
+    assert settings.OLLAMA_HOST == "http://localhost:11434"
+    assert settings.OLLAMA_MODEL == "qwen2.5:latest"
+    assert settings.PLAYLIST_FILE.name == "playlist.txt"
 
 
 def test_mus_settings_rejects_invalid_values() -> None:

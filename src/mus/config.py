@@ -17,6 +17,7 @@ class MusSettings(BaseSettings):
 
     LIBRARY_DIR: Path = Path("./data/library")
     HISTORY_FILE: Path = Path("./data/history.json")
+    PLAYLIST_FILE: Path = Path(__file__).resolve().parent / "data" / "playlist.txt"
     OUTPUT_DIR: Path = Path("./outputs")
 
     SAMPLE_RATE: int = 44100
@@ -32,6 +33,9 @@ class MusSettings(BaseSettings):
     SOUNDFONT_PATH: Path = Path("/usr/share/sounds/sf2/FluidR3_GM.sf2")
     FLUIDSYNTH_BIN: str = "fluidsynth"
     MUSESCORE_BIN: str = "musescore"
+
+    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen2.5:latest"
 
     LOG_LEVEL: str = "INFO"
 
