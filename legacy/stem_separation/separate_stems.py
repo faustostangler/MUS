@@ -54,9 +54,11 @@ DEFAULT_CLIP_MODE = "rescale"    # Evita qualquer distorção digital reescaland
 STEMS_6S = ["vocals", "drums", "bass", "other", "guitar", "piano"]
 STEMS_4S = ["vocals", "drums", "bass", "other"]
 
-DEFAULT_PLAYLIST_FILE = Path(__file__).parent / "playlist.txt"
-DEFAULT_LIBRARY_DIR = Path(__file__).parent / "library"
-DEFAULT_HISTORY_FILE = Path(__file__).parent / "history.json"
+# ADR-001 D8: legacy script reads the shared data root via env (12-Factor); defaults to repo data/.
+_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+DEFAULT_PLAYLIST_FILE = Path(os.environ.get("MUS_PLAYLIST_FILE", _DATA_DIR / "playlist.txt"))
+DEFAULT_LIBRARY_DIR = Path(os.environ.get("MUS_LIBRARY_DIR", _DATA_DIR / "library"))
+DEFAULT_HISTORY_FILE = Path(os.environ.get("MUS_HISTORY_FILE", _DATA_DIR / "history.json"))
 DEFAULT_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:latest"

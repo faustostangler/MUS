@@ -192,3 +192,16 @@ enriched/
 /vault/
 *.sqlite
 
+
+# MUS vocal pipeline (ADR-001)
+/outputs/
+sandbox/**/out/
+*.wav
+*.mp3
+*.mid
+*.npz
+.venv/
+__pycache__/
+.mutmut-cache
+mutants/
+.coverage
