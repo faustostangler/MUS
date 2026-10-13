@@ -2,6 +2,7 @@
 
 import typer
 
+from mus.presentation.cli.transcribe import app as transcribe_app
 from mus.presentation.cli.voice import app as voice_app
 
 app = typer.Typer(
@@ -11,6 +12,7 @@ app = typer.Typer(
 )
 
 app.add_typer(voice_app, name="voice")
+app.add_typer(transcribe_app, name="transcribe")
 
 
 def main() -> None:
