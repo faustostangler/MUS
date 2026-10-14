@@ -72,7 +72,7 @@ def test_ingest_and_separate_track_executes_pipeline(tmp_path: Path) -> None:
     result = use_case.execute(cmd)
 
     assert result.vocals_path.exists()
-    assert result.vocals_path.parent == tmp_path / "Jazz"
+    assert result.vocals_path.parent == tmp_path / "jazz"
     assert "vid_123" in catalog.records
 
 
@@ -103,9 +103,9 @@ def test_ingest_and_separate_track_sanitizes_genre_and_handles_empty(tmp_path: P
     )
     cmd = IngestAndSeparateCommand(source="http://yt/1", output_dir=tmp_path)
     result = use_case.execute(cmd)
-    assert result.vocals_path.parent == tmp_path / "Pop_Rock"
+    assert result.vocals_path.parent == tmp_path / "pop-rock"
 
-    # Test empty genre falls back to Unknown
+    # Test empty genre falls back to unknown
     use_case_empty = IngestAndSeparateTrack(
         downloader=downloader,
         tagger=CustomTagger("   "),
@@ -114,4 +114,4 @@ def test_ingest_and_separate_track_sanitizes_genre_and_handles_empty(tmp_path: P
     )
     cmd_empty = IngestAndSeparateCommand(source="http://yt/2", output_dir=tmp_path)
     result_empty = use_case_empty.execute(cmd_empty)
-    assert result_empty.vocals_path.parent == tmp_path / "Unknown"
+    assert result_empty.vocals_path.parent == tmp_path / "unknown"

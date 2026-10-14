@@ -15,7 +15,7 @@ class MusSettings(BaseSettings):
         extra="ignore",
     )
 
-    LIBRARY_DIR: Path = Path("./data/library")
+    LIBRARY_DIR: Path = Path("./outputs/library")
     HISTORY_FILE: Path = Path("./data/history.json")
     PLAYLIST_FILE: Path = Path(__file__).resolve().parent / "data" / "playlist.txt"
     OUTPUT_DIR: Path = Path("./outputs")

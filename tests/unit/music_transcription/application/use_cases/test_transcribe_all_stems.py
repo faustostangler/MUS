@@ -129,7 +129,62 @@ def test_synthesize_stem_midi_renders_and_writes_audio(
     midi_path = tmp_path / "source.mid"
     pm.write(str(midi_path))
 
-    out_mp3 = tmp_path / "synthesized - synt.mp3"
+    out_mp3 = tmp_path / "synthesized - mid.mp3"
+    synthesizer = SynthesizeStemMidi()
+    result_path = synthesizer.execute(
+        SynthesizeStemMidiCommand(
+            midi_path=midi_path,
+            output_path=out_mp3,
+            sample_rate=sample_rate,
+        )
+    )
+
+    assert result_path == out_mp3
+    assert out_mp3.exists()
+    assert out_mp3.stat().st_size > 0
+
+
+def test_synthesize_stem_midi_handles_percussion_drum_channel_without_nan(
+    tmp_path: Path, sample_rate: SampleRate
+) -> None:
+    # Regression test for AudioSignal NaN error on drum channels (is_drum=True)
+    pm = pretty_midi.PrettyMIDI()
+    drum_inst = pretty_midi.Instrument(program=0, is_drum=True, name="Drums")
+    drum_inst.notes.append(pretty_midi.Note(velocity=100, pitch=36, start=0.0, end=0.1))
+    drum_inst.notes.append(pretty_midi.Note(velocity=90, pitch=38, start=0.5, end=0.6))
+    drum_inst.notes.append(pretty_midi.Note(velocity=80, pitch=42, start=1.0, end=1.1))
+    pm.instruments.append(drum_inst)
+
+    midi_path = tmp_path / "drums.mid"
+    pm.write(str(midi_path))
+
+    out_mp3 = tmp_path / "drums - mid.mp3"
+    synthesizer = SynthesizeStemMidi()
+    result_path = synthesizer.execute(
+        SynthesizeStemMidiCommand(
+            midi_path=midi_path,
+            output_path=out_mp3,
+            sample_rate=sample_rate,
+        )
+    )
+
+    assert result_path == out_mp3
+    assert out_mp3.exists()
+    assert out_mp3.stat().st_size > 0
+
+
+def test_synthesize_stem_midi_handles_empty_midi_without_nan(
+    tmp_path: Path, sample_rate: SampleRate
+) -> None:
+    # Regression test for completely empty or silent MIDI
+    pm = pretty_midi.PrettyMIDI()
+    inst = pretty_midi.Instrument(program=0, is_drum=False, name="Empty")
+    pm.instruments.append(inst)
+
+    midi_path = tmp_path / "empty.mid"
+    pm.write(str(midi_path))
+
+    out_mp3 = tmp_path / "empty - mid.mp3"
     synthesizer = SynthesizeStemMidi()
     result_path = synthesizer.execute(
         SynthesizeStemMidiCommand(

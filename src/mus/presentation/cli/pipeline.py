@@ -19,6 +19,7 @@ from mus.shared_kernel.units import Hertz, SampleRate, Semitones
 from mus.stem_separation.application.use_cases.ingest_and_separate import (
     IngestAndSeparateCommand,
     IngestAndSeparateTrack,
+    sanitize_genre,
 )
 from mus.stem_separation.infrastructure.demucs_stem_separator import DemucsStemSeparator
 from mus.stem_separation.infrastructure.json_catalog_history import JsonCatalogHistory
@@ -45,7 +46,7 @@ from mus.voice_modeling.infrastructure.soundfile_audio_io import SoundfileAudioI
 app = typer.Typer(help="End-to-end ingestion, decomposition, and resynthesis pipeline.")
 
 
-def is_track_fully_processed(source: str, stems_dir: Path, history_file: Path) -> bool:
+def is_track_fully_processed(source: str, library_dir: Path, history_file: Path) -> bool:
     """Checks if a track has already been fully processed with all expected artifacts."""
     catalog = JsonCatalogHistory(history_file=history_file)
     tracks = catalog._cache.get("tracks", {})
@@ -56,8 +57,8 @@ def is_track_fully_processed(source: str, stems_dir: Path, history_file: Path) -
 
     if video_id and video_id in tracks:
         entry = tracks[video_id]
-        genre = entry.get("genre", "Unknown")
-        target_dir = stems_dir / genre
+        genre = sanitize_genre(entry.get("genre", "unknown"))
+        target_dir = library_dir / genre
         if target_dir.exists():
             for v_path in target_dir.glob("*vocals.mp3"):
                 prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
@@ -67,18 +68,18 @@ def is_track_fully_processed(source: str, stems_dir: Path, history_file: Path) -
                     if f.is_file()
                     and f.name.startswith(f"{prefix} - ")
                     and f.name.endswith(".mp3")
-                    and not f.name.endswith("- synt.mp3")
+                    and not f.name.endswith("- mid.mp3")
                 ]
                 if stem_files and all(
-                    f.with_suffix(".mid").exists() and (f.parent / f"{f.stem} - synt.mp3").exists()
+                    f.with_suffix(".mid").exists() and (f.parent / f"{f.stem} - mid.mp3").exists()
                     for f in stem_files
                 ):
                     return True
 
     # 2. Match by file path or local file name
     source_stem = Path(source).stem
-    if stems_dir.exists():
-        for v_path in stems_dir.rglob(f"*{source_stem}*vocals.mp3"):
+    if library_dir.exists():
+        for v_path in library_dir.rglob(f"*{source_stem}*vocals.mp3"):
             prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
             stem_files = [
                 f
@@ -86,10 +87,10 @@ def is_track_fully_processed(source: str, stems_dir: Path, history_file: Path) -
                 if f.is_file()
                 and f.name.startswith(f"{prefix} - ")
                 and f.name.endswith(".mp3")
-                and not f.name.endswith("- synt.mp3")
+                and not f.name.endswith("- mid.mp3")
             ]
             if stem_files and all(
-                f.with_suffix(".mid").exists() and (f.parent / f"{f.stem} - synt.mp3").exists()
+                f.with_suffix(".mid").exists() and (f.parent / f"{f.stem} - mid.mp3").exists()
                 for f in stem_files
             ):
                 return True
@@ -119,7 +120,8 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
     """Runs the complete end-to-end pipeline from audio/URL to stems, MIDI, and modulated voice."""
     settings = get_settings()
     output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    library_dir = output_dir if output_dir.name == "library" else output_dir / "library"
+    library_dir.mkdir(parents=True, exist_ok=True)
 
     sources: list[str] = []
     if source is None:
@@ -144,7 +146,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
     typer.echo(f"Total track(s) to process: {len(sources)}")
 
     for idx, target_source in enumerate(sources, start=1):
-        if is_track_fully_processed(target_source, output_dir / "stems", settings.HISTORY_FILE):
+        if is_track_fully_processed(target_source, library_dir, settings.HISTORY_FILE):
             typer.secho(
                 f"\n=== [{idx}/{len(sources)}] ⚡ [Skipped] Already completed: {target_source} ===",
                 fg=typer.colors.YELLOW,
@@ -173,7 +175,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
         stems = ingest_uc.execute(
             IngestAndSeparateCommand(
                 source=target_source,
-                output_dir=output_dir / "stems",
+                output_dir=library_dir,
             )
         )
         vocal_stem_path = stems.vocals_path
@@ -237,7 +239,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
             typer.echo(f"✓ Vocal tract scaled with alpha={scale_alpha:.2f}")
 
         # Always synthesize and persist the vocal take as MP3 alongside stems (SPEC-002 S3)
-        resynth_out = vocal_stem_path.parent / f"{vocal_stem_path.stem} - synt.mp3"
+        resynth_out = vocal_stem_path.parent / f"{vocal_stem_path.stem} - mid.mp3"
         resynth_uc = ResynthesizeVoice(vocoder=vocoder, writer=writer)
         resynth_uc.execute(
             ResynthesizeVoiceCommand(
@@ -267,7 +269,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
                 typer.echo(f"✓ Transcribed {stem_name} stem to MIDI: {stem_midi_path}")
 
                 # Synthesize acoustic MP3 preview
-                stem_synt_path = stem_path.parent / f"{stem_path.stem} - synt.mp3"
+                stem_synt_path = stem_path.parent / f"{stem_path.stem} - mid.mp3"
                 synthesizer_uc.execute(
                     SynthesizeStemMidiCommand(
                         midi_path=stem_midi_path,

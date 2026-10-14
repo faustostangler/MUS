@@ -16,9 +16,21 @@ from mus.stem_separation.domain.models import SeparatedStems
 
 
 def sanitize_genre(genre: str) -> str:
-    """Sanitizes musical genre name for filesystem storage."""
-    cleaned = re.sub(r'[\\/*?:"<>|]', "_", genre).strip()
-    return cleaned or "Unknown"
+    """Sanitizes musical genre name into a lowercase slug (e.g. 'samba-reggae')."""
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", genre.strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or "unknown"
+
+
+def build_canonical_title(artist: str, track: str, default: str = "") -> str:
+    """Builds standardized '{artist} - {track}' naming."""
+    artist_clean = artist.strip()
+    track_clean = track.strip()
+    if artist_clean and artist_clean.lower() != "unknown artist":
+        if not track_clean.lower().startswith(f"{artist_clean.lower()} - "):
+            return f"{artist_clean} - {track_clean}"
+        return track_clean
+    return track_clean or default
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,14 +72,18 @@ class IngestAndSeparateTrack:
         cached_entry = cached_tracks.get(video_id) if video_id else None
 
         if cached_entry:
-            cached_genre = sanitize_genre(cached_entry.get("genre", "Unknown"))
+            cached_genre = sanitize_genre(cached_entry.get("genre", "unknown"))
             cached_genre_dir = base_output_dir / cached_genre
             cached_genre_dir.mkdir(parents=True, exist_ok=True)
+            artist = cached_entry.get("artist", "")
             track_name = cached_entry.get("track", "")
+            canonical_name = build_canonical_title(artist, track_name, default=track_name)
 
-            # Search for existing vocals stem in genre dir or base stems dir
-            existing_vocals = list(cached_genre_dir.glob(f"*{track_name}*vocals.mp3")) or list(
-                base_output_dir.glob(f"*{track_name}*vocals.mp3")
+            # Search for existing vocals stem in genre dir or base directory
+            existing_vocals = (
+                list(cached_genre_dir.glob(f"*{canonical_name}*vocals.mp3"))
+                or list(cached_genre_dir.glob(f"*{track_name}*vocals.mp3"))
+                or list(base_output_dir.glob(f"*{track_name}*vocals.mp3"))
             )
             if existing_vocals:
                 v_path = existing_vocals[0]
@@ -78,7 +94,9 @@ class IngestAndSeparateTrack:
                 other_stems = {
                     s.stem.split(" - ")[-1]: s
                     for s in cached_genre_dir.glob(f"*{track_name}* - *.mp3")
-                    if s != v_path and not s.name.endswith("- synt.mp3")
+                    if s != v_path
+                    and not s.name.endswith("- mid.mp3")
+                    and not s.name.endswith("- synt.mp3")
                 }
                 return SeparatedStems(vocals_path=v_path, other_stems=other_stems)
 
@@ -97,14 +115,16 @@ class IngestAndSeparateTrack:
         if self._vram_cleaner is not None:
             self._vram_cleaner()
 
-        # Genre-partitioned output directory (ADR-002 D1)
+        # Genre-partitioned output directory in lowercase slug format (e.g. 'samba-reggae')
         genre_name = sanitize_genre(metadata.genre)
         genre_dir = base_output_dir / genre_name
         genre_dir.mkdir(parents=True, exist_ok=True)
 
-        # Relocate downloaded audio file into the genre directory if needed
-        if audio_path.parent != genre_dir and audio_path.exists():
-            target_audio_path = genre_dir / audio_path.name
+        canonical_title = build_canonical_title(metadata.artist, metadata.track, default=raw_title)
+        target_audio_path = genre_dir / f"{canonical_title}.mp3"
+
+        # Relocate and rename downloaded audio file into the genre directory
+        if audio_path != target_audio_path and audio_path.exists():
             shutil.move(str(audio_path), str(target_audio_path))
             audio_path = target_audio_path
 
@@ -114,7 +134,9 @@ class IngestAndSeparateTrack:
             other_stems = {
                 s.stem.split(" - ")[-1]: s
                 for s in genre_dir.glob(f"{audio_path.stem} - *.mp3")
-                if s != expected_vocals and not s.name.endswith("- synt.mp3")
+                if s != expected_vocals
+                and not s.name.endswith("- mid.mp3")
+                and not s.name.endswith("- synt.mp3")
             }
             stems = SeparatedStems(vocals_path=expected_vocals, other_stems=other_stems)
         else:

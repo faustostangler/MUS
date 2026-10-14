@@ -295,6 +295,54 @@ class SynthesizeStemMidiCommand:
     sample_rate: SampleRate
 
 
+def _synthesize_drum_instrument(drum_inst: pretty_midi.Instrument, fs: int) -> np.ndarray:
+    """Synthesizes drum transients into percussive acoustic waveforms."""
+    end_time = drum_inst.get_end_time()
+    if end_time <= 0 or not drum_inst.notes:
+        return np.zeros(0, dtype=np.float64)
+
+    total_samples = int(fs * (end_time + 1.0))
+    audio = np.zeros(total_samples, dtype=np.float64)
+    rng = np.random.RandomState(42)
+
+    for note in drum_inst.notes:
+        start_sample = int(note.start * fs)
+        dur = max(note.end - note.start, 0.05)
+        n_samples = int(dur * fs)
+        if start_sample >= total_samples:
+            continue
+        actual_len = min(n_samples, total_samples - start_sample)
+        if actual_len <= 0:
+            continue
+
+        t = np.linspace(0, actual_len / fs, actual_len, endpoint=False)
+        vel = note.velocity / 127.0
+
+        if note.pitch == 36:  # Bass / Kick Drum (decaying low frequency sweep)
+            env = np.exp(-t * 25.0)
+            freq = 45.0 + 75.0 * np.exp(-t * 40.0)
+            phase = 2 * np.pi * np.cumsum(freq) / fs
+            hit = np.sin(phase) * env * vel
+        elif note.pitch == 38:  # Snare Drum (mid tone + white noise burst)
+            env = np.exp(-t * 22.0)
+            noise = rng.uniform(-1.0, 1.0, actual_len)
+            tone = np.sin(2 * np.pi * 180.0 * t)
+            hit = (0.65 * noise + 0.35 * tone) * env * vel
+        elif note.pitch == 42:  # Closed Hi-Hat (crisp metallic noise transient)
+            env = np.exp(-t * 55.0)
+            noise = rng.uniform(-1.0, 1.0, actual_len)
+            hit = noise * env * vel * 0.6
+        else:  # Generic percussive transient
+            env = np.exp(-t * 35.0)
+            noise = rng.uniform(-1.0, 1.0, actual_len)
+            tone = np.sin(2 * np.pi * 250.0 * t)
+            hit = (0.5 * noise + 0.5 * tone) * env * vel
+
+        audio[start_sample : start_sample + actual_len] += hit
+
+    return audio
+
+
 class SynthesizeStemMidi:
     """Renders a MIDI file to an acoustic audio file using PrettyMIDI synthesis and AudioWriter."""
 
@@ -315,9 +363,29 @@ class SynthesizeStemMidi:
             raise FileNotFoundError(f"MIDI file not found at: {midi_path}")
 
         pm = pretty_midi.PrettyMIDI(str(midi_path))
-        synth_samples = pm.synthesize(fs=command.sample_rate.value)
-        if len(synth_samples) == 0:
-            synth_samples = np.zeros(command.sample_rate.value, dtype=np.float64)
+        fs = command.sample_rate.value
+
+        waveforms: list[np.ndarray] = []
+        for inst in pm.instruments:
+            w = _synthesize_drum_instrument(inst, fs) if inst.is_drum else inst.synthesize(fs=fs)
+            if len(w) > 0:
+                waveforms.append(w)
+
+        if waveforms:
+            max_len = max(len(w) for w in waveforms)
+            synth_samples = np.zeros(max_len, dtype=np.float64)
+            for w in waveforms:
+                synth_samples[: len(w)] += w
+        else:
+            synth_samples = np.full(fs, 1e-7, dtype=np.float64)
+
+        synth_samples = np.nan_to_num(synth_samples, nan=0.0, posinf=0.0, neginf=0.0)
+        max_val = float(np.max(np.abs(synth_samples))) if len(synth_samples) > 0 else 0.0
+
+        if max_val > 1e-6:
+            synth_samples = (synth_samples / max_val) * 0.95
+        else:
+            synth_samples = np.full(fs, 1e-7, dtype=np.float64)
 
         c_samples = np.ascontiguousarray(synth_samples, dtype=np.float64)
         signal = AudioSignal(samples=c_samples, sample_rate=command.sample_rate)
