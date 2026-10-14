@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Protocol
 
 from mus.shared_kernel.audio import AudioSignal
+from mus.shared_kernel.metrics import SongMetrics
 from mus.shared_kernel.notes import NoteSequence
 
 
@@ -23,6 +24,7 @@ class MidiWriterPort(ABC):
         sequence: NoteSequence,
         output_path: Path,
         program_number: int = 52,
+        song_metrics: SongMetrics | None = None,
     ) -> None:
         """Exports a NoteSequence to a Standard MIDI file."""
 

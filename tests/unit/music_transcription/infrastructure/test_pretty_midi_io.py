@@ -5,7 +5,11 @@ Covers: S2-08, MT-02.
 
 from pathlib import Path
 
+import pretty_midi
+import pytest
+
 from mus.music_transcription.infrastructure.pretty_midi_io import PrettyMidiIO
+from mus.shared_kernel.metrics import SongMetrics
 from mus.shared_kernel.notes import NoteEvent, NoteSequence
 from mus.shared_kernel.units import MidiPitch
 
@@ -29,3 +33,28 @@ def test_pretty_midi_io_write_and_read(tmp_path: Path) -> None:
     assert loaded.notes[1].pitch.value == 64
     assert loaded.notes[0].velocity == 80
     assert loaded.notes[1].velocity == 90
+
+
+def test_pretty_midi_io_writes_song_metrics_meta_events(tmp_path: Path) -> None:
+    """Covers SPEC-005 S2: PrettyMidiIO writes tempo, time signature, and end marker."""
+    io = PrettyMidiIO()
+    n1 = NoteEvent(pitch=MidiPitch(60), onset_seconds=0.0, offset_seconds=0.5, velocity=80)
+    sequence = NoteSequence(notes=[n1], tempo_bpm=120.0)
+
+    metrics = SongMetrics(
+        tempo_bpm=85.5,
+        duration_seconds=120.0,
+        time_signature_numerator=3,
+        time_signature_denominator=4,
+    )
+
+    midi_path = tmp_path / "metrics_test.mid"
+    io.write(sequence, midi_path, program_number=52, song_metrics=metrics)
+
+    pm = pretty_midi.PrettyMIDI(str(midi_path))
+    _, tempi = pm.get_tempo_changes()
+    assert pytest.approx(float(tempi[0]), abs=0.01) == 85.5
+    assert len(pm.time_signature_changes) > 0
+    assert pm.time_signature_changes[0].numerator == 3
+    assert pm.time_signature_changes[0].denominator == 4
+    assert pytest.approx(pm.get_end_time(), abs=0.01) == 120.0

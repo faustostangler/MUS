@@ -16,6 +16,7 @@ from mus.music_transcription.application.use_cases.transcribe_all_stems import (
     TranscribeStemCommand,
 )
 from mus.shared_kernel.audio import AudioSignal
+from mus.shared_kernel.metrics import SongMetrics
 from mus.shared_kernel.units import SampleRate
 
 
@@ -116,6 +117,43 @@ def test_transcribe_stem_dispatches_correctly(tmp_path: Path, sample_rate: Sampl
     assert guitar_mid.exists()
     pm_guitar = pretty_midi.PrettyMIDI(str(guitar_mid))
     assert pm_guitar.instruments[0].program == 25
+
+
+def test_transcribe_stem_applies_unified_song_metrics(
+    tmp_path: Path, sample_rate: SampleRate
+) -> None:
+    transcriber = TranscribeStem()
+    t = np.linspace(0, 1.0, sample_rate.value, endpoint=False)
+    sig = AudioSignal(
+        samples=(0.5 * np.sin(2 * np.pi * 55.0 * t)).astype(np.float64),
+        sample_rate=sample_rate,
+    )
+
+    metrics = SongMetrics(
+        tempo_bpm=82.5,
+        duration_seconds=240.0,
+        time_signature_numerator=4,
+        time_signature_denominator=4,
+    )
+
+    for stem in ["bass", "drums", "guitar"]:
+        midi_file = tmp_path / f"{stem}.mid"
+        transcriber.execute(
+            TranscribeStemCommand(
+                stem_name=stem,
+                audio=sig,
+                output_midi_path=midi_file,
+                song_metrics=metrics,
+            )
+        )
+        assert midi_file.exists()
+        pm = pretty_midi.PrettyMIDI(str(midi_file))
+        tempi = pm.get_tempo_changes()[1]
+        assert pytest.approx(float(tempi[0]), abs=0.01) == 82.5
+        assert len(pm.time_signature_changes) > 0
+        assert pm.time_signature_changes[0].numerator == 4
+        assert pm.time_signature_changes[0].denominator == 4
+        assert pytest.approx(pm.get_end_time(), abs=0.01) == 240.0
 
 
 def test_synthesize_stem_midi_renders_and_writes_audio(

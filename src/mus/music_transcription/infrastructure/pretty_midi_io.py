@@ -5,6 +5,7 @@ from pathlib import Path
 import pretty_midi
 
 from mus.music_transcription.application.ports import MidiReaderPort, MidiWriterPort
+from mus.shared_kernel.metrics import SongMetrics
 from mus.shared_kernel.notes import NoteEvent, NoteSequence
 from mus.shared_kernel.units import MidiPitch
 
@@ -17,12 +18,22 @@ class PrettyMidiIO(MidiWriterPort, MidiReaderPort):
         sequence: NoteSequence,
         output_path: Path,
         program_number: int = 52,  # Default Choir Aahs (GM 52) per MT-02
+        song_metrics: SongMetrics | None = None,
     ) -> None:
         """Exports a NoteSequence to a Standard MIDI file."""
         output_path = Path(output_path).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        midi = pretty_midi.PrettyMIDI(initial_tempo=sequence.tempo_bpm)
+        tempo = song_metrics.tempo_bpm if song_metrics else sequence.tempo_bpm
+        midi = pretty_midi.PrettyMIDI(initial_tempo=tempo)
+
+        num = song_metrics.time_signature_numerator if song_metrics else 4
+        den = song_metrics.time_signature_denominator if song_metrics else 4
+        midi.time_signature_changes.append(pretty_midi.TimeSignature(num, den, 0.0))
+
+        if song_metrics and song_metrics.duration_seconds > 0.0:
+            midi.text_events.append(pretty_midi.Text("END_TRACK", song_metrics.duration_seconds))
+
         instrument = pretty_midi.Instrument(program=program_number)
 
         for n in sequence.notes:

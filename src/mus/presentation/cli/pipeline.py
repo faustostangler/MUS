@@ -14,6 +14,7 @@ from mus.music_transcription.application.use_cases.transcribe_contour import (
     TranscribeContour,
     TranscribeContourCommand,
 )
+from mus.shared_kernel.metrics import estimate_song_metrics
 from mus.shared_kernel.playlist import load_youtube_playlist
 from mus.shared_kernel.units import Hertz, SampleRate, Semitones
 from mus.stem_separation.application.use_cases.ingest_and_separate import (
@@ -106,7 +107,9 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
     ),
     output_dir: Path = typer.Option(Path("./outputs"), "--out", "-o", help="Output directory"),
     to_midi: bool = typer.Option(True, "--midi/--no-midi", help="Transcribe vocal melody to MIDI"),
-    bpm: float = typer.Option(120.0, "--bpm", help="Initial tempo BPM for transcription"),
+    bpm: float | None = typer.Option(
+        None, "--bpm", help="Initial tempo BPM for transcription (auto-detected if omitted)"
+    ),
     transpose_st: float | None = typer.Option(
         None, "--transpose", "-t", help="Transpose vocal stem"
     ),
@@ -205,6 +208,23 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
             f"({voice.duration_seconds:.2f}s)"
         )
 
+        # Resolve unified SongMetrics (BPM, duration, time signature) across all stems (ADR-005)
+        ref_signal = signal
+        if stems.other_stems and "drums" in stems.other_stems:
+            try:
+                ref_signal = reader.read(stems.other_stems["drums"], target_rate=target_sr)
+            except Exception:
+                ref_signal = signal
+
+        song_metrics = estimate_song_metrics(ref_signal, preferred_bpm=bpm)
+        meter_str = (
+            f"{song_metrics.time_signature_numerator}/{song_metrics.time_signature_denominator}"
+        )
+        typer.echo(
+            f"✓ Song metrics resolved: {song_metrics.tempo_bpm} BPM, "
+            f"{meter_str} meter, {song_metrics.duration_seconds:.2f}s duration"
+        )
+
         # Step 3: Symbolic Transcription (Track A: Monophonic Vocal Lead -> MIDI Choir Aahs GM 52)
         if to_midi:
             midi_path = vocal_stem_path.parent / f"{vocal_stem_path.stem}.mid"
@@ -212,9 +232,10 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
             sequence = transcribe_uc.execute(
                 TranscribeContourCommand(
                     contour=voice.f0,
-                    tempo_bpm=bpm,
+                    tempo_bpm=song_metrics.tempo_bpm,
                     output_midi_path=midi_path,
                     program_number=52,  # Choir Aahs GM 52
+                    song_metrics=song_metrics,
                 )
             )
             typer.echo(
@@ -264,6 +285,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
                         stem_name=stem_name,
                         audio=stem_signal,
                         output_midi_path=stem_midi_path,
+                        song_metrics=song_metrics,
                     )
                 )
                 typer.echo(f"✓ Transcribed {stem_name} stem to MIDI: {stem_midi_path}")

@@ -10,12 +10,31 @@ from scipy import signal as sp_signal
 
 from mus.music_transcription.application.ports import AudioWriterPort
 from mus.shared_kernel.audio import AudioSignal
+from mus.shared_kernel.metrics import SongMetrics
 from mus.shared_kernel.units import SampleRate
 
 
 def _get_note_start(note: pretty_midi.Note) -> float:
     """Returns the start timestamp of a pretty_midi Note."""
     return float(note.start)
+
+
+def _init_pretty_midi(
+    song_metrics: SongMetrics | None = None,
+    fallback_duration: float = 0.0,
+) -> pretty_midi.PrettyMIDI:
+    """Initializes a PrettyMIDI instance with unified tempo, time signature, and duration marker."""
+    tempo = song_metrics.tempo_bpm if song_metrics else 120.0
+    pm = pretty_midi.PrettyMIDI(initial_tempo=tempo)
+
+    num = song_metrics.time_signature_numerator if song_metrics else 4
+    den = song_metrics.time_signature_denominator if song_metrics else 4
+    pm.time_signature_changes.append(pretty_midi.TimeSignature(num, den, 0.0))
+
+    duration = song_metrics.duration_seconds if song_metrics else fallback_duration
+    if duration > 0.0:
+        pm.text_events.append(pretty_midi.Text("END_TRACK", duration))
+    return pm
 
 
 class TranscribeBass:
@@ -25,7 +44,12 @@ class TranscribeBass:
         self._fmin = fmin
         self._fmax = fmax
 
-    def execute(self, audio: AudioSignal, output_midi_path: Path) -> Path:
+    def execute(
+        self,
+        audio: AudioSignal,
+        output_midi_path: Path,
+        song_metrics: SongMetrics | None = None,
+    ) -> Path:
         """Estimates F0 contour and writes a bass MIDI file."""
         output_midi_path = Path(output_midi_path).resolve()
         output_midi_path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,7 +67,7 @@ class TranscribeBass:
         )
         hop_time = 512.0 / sr
 
-        pm = pretty_midi.PrettyMIDI()
+        pm = _init_pretty_midi(song_metrics, fallback_duration=audio.duration_seconds)
         bass_inst = pretty_midi.Instrument(program=33, is_drum=False, name="Bass")
 
         current_pitch: int | None = None
@@ -99,7 +123,12 @@ class TranscribeBass:
 class TranscribeDrums:
     """Transcribes drum transients across low/mid/high sub-bands to GM Channel 10."""
 
-    def execute(self, audio: AudioSignal, output_midi_path: Path) -> Path:
+    def execute(
+        self,
+        audio: AudioSignal,
+        output_midi_path: Path,
+        song_metrics: SongMetrics | None = None,
+    ) -> Path:
         """Detects kicks, snares and hi-hats, generating a percussion MIDI file."""
         output_midi_path = Path(output_midi_path).resolve()
         output_midi_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,7 +137,7 @@ class TranscribeDrums:
         samples = audio.samples
         nyquist = sr / 2.0
 
-        pm = pretty_midi.PrettyMIDI()
+        pm = _init_pretty_midi(song_metrics, fallback_duration=audio.duration_seconds)
         drum_inst = pretty_midi.Instrument(program=0, is_drum=True, name="Drums")
 
         # 1. Low band for Kick Drum (Note 36)
@@ -166,6 +195,7 @@ class TranscribeHarmonic:
         output_midi_path: Path,
         program_number: int = 0,
         name: str = "Harmonic",
+        song_metrics: SongMetrics | None = None,
     ) -> Path:
         """Extracts prominent pitch peaks across frames and writes a polyphonic MIDI file."""
         output_midi_path = Path(output_midi_path).resolve()
@@ -184,7 +214,7 @@ class TranscribeHarmonic:
             hop_length=hop_length,
         )
 
-        pm = pretty_midi.PrettyMIDI()
+        pm = _init_pretty_midi(song_metrics, fallback_duration=audio.duration_seconds)
         inst = pretty_midi.Instrument(program=program_number, is_drum=False, name=name)
 
         n_frames = pitches.shape[1]
@@ -249,6 +279,7 @@ class TranscribeStemCommand:
     stem_name: str
     audio: AudioSignal
     output_midi_path: Path
+    song_metrics: SongMetrics | None = None
 
 
 class TranscribeStem:
@@ -268,21 +299,37 @@ class TranscribeStem:
         """Executes stem transcription for bass, drums, or harmonic stems."""
         stem = command.stem_name.lower().strip()
         if stem == "bass":
-            return self._bass.execute(command.audio, command.output_midi_path)
+            return self._bass.execute(
+                command.audio, command.output_midi_path, song_metrics=command.song_metrics
+            )
         if stem == "drums":
-            return self._drums.execute(command.audio, command.output_midi_path)
+            return self._drums.execute(
+                command.audio, command.output_midi_path, song_metrics=command.song_metrics
+            )
         if stem == "guitar":
             return self._harmonic.execute(
-                command.audio, command.output_midi_path, program_number=25, name="Guitar"
+                command.audio,
+                command.output_midi_path,
+                program_number=25,
+                name="Guitar",
+                song_metrics=command.song_metrics,
             )
         if stem == "piano":
             return self._harmonic.execute(
-                command.audio, command.output_midi_path, program_number=0, name="Piano"
+                command.audio,
+                command.output_midi_path,
+                program_number=0,
+                name="Piano",
+                song_metrics=command.song_metrics,
             )
         # Fallback for "other" or unmapped stem types
         stem_title = stem.capitalize() if stem else "Other"
         return self._harmonic.execute(
-            command.audio, command.output_midi_path, program_number=48, name=stem_title
+            command.audio,
+            command.output_midi_path,
+            program_number=48,
+            name=stem_title,
+            song_metrics=command.song_metrics,
         )
 
 

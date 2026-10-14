@@ -47,4 +47,5 @@ def test_transcribe_contour_calls_midi_writer_when_path_provided(tmp_path: Path)
         sequence=seq,
         output_path=out_mid,
         program_number=52,
+        song_metrics=None,
     )
