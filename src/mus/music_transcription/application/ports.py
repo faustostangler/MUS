@@ -1,9 +1,17 @@
-"""Abstract ports for music transcription, score export, and synthesis."""
-
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Protocol
 
+from mus.shared_kernel.audio import AudioSignal
 from mus.shared_kernel.notes import NoteSequence
+
+
+class AudioWriterPort(Protocol):
+    """Port to atomically write an AudioSignal to disk."""
+
+    def write(self, signal: AudioSignal, path: Path) -> None:
+        """Writes audio signal atomically."""
+        ...
 
 
 class MidiWriterPort(ABC):

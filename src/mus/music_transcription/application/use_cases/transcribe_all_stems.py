@@ -1,0 +1,325 @@
+"""Use cases for multi-stem MIDI transcription (bass, drums, harmonic) (ADR-003 D1)."""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import librosa
+import numpy as np
+import pretty_midi
+from scipy import signal as sp_signal
+
+from mus.music_transcription.application.ports import AudioWriterPort
+from mus.shared_kernel.audio import AudioSignal
+from mus.shared_kernel.units import SampleRate
+
+
+def _get_note_start(note: pretty_midi.Note) -> float:
+    """Returns the start timestamp of a pretty_midi Note."""
+    return float(note.start)
+
+
+class TranscribeBass:
+    """Transcribes bass stem using low-register F0 pitch tracking to GM Program 33."""
+
+    def __init__(self, fmin: float = 30.0, fmax: float = 400.0) -> None:
+        self._fmin = fmin
+        self._fmax = fmax
+
+    def execute(self, audio: AudioSignal, output_midi_path: Path) -> Path:
+        """Estimates F0 contour and writes a bass MIDI file."""
+        output_midi_path = Path(output_midi_path).resolve()
+        output_midi_path.parent.mkdir(parents=True, exist_ok=True)
+
+        sr = audio.sample_rate.value
+        samples = audio.samples
+
+        f0 = librosa.yin(
+            samples,
+            fmin=self._fmin,
+            fmax=self._fmax,
+            sr=sr,
+            frame_length=4096,
+            hop_length=512,
+        )
+        hop_time = 512.0 / sr
+
+        pm = pretty_midi.PrettyMIDI()
+        bass_inst = pretty_midi.Instrument(program=33, is_drum=False, name="Bass")
+
+        current_pitch: int | None = None
+        start_time: float = 0.0
+
+        for idx, freq in enumerate(f0):
+            t = idx * hop_time
+            if not np.isnan(freq) and freq > self._fmin:
+                midi_note = int(np.round(librosa.hz_to_midi(freq)))
+                if current_pitch is None:
+                    current_pitch = midi_note
+                    start_time = t
+                elif midi_note != current_pitch:
+                    if t - start_time >= 0.08:
+                        bass_inst.notes.append(
+                            pretty_midi.Note(
+                                velocity=90,
+                                pitch=current_pitch,
+                                start=start_time,
+                                end=t,
+                            )
+                        )
+                    current_pitch = midi_note
+                    start_time = t
+            elif current_pitch is not None:
+                if t - start_time >= 0.08:
+                    bass_inst.notes.append(
+                        pretty_midi.Note(
+                            velocity=90,
+                            pitch=current_pitch,
+                            start=start_time,
+                            end=t,
+                        )
+                    )
+                current_pitch = None
+
+        if current_pitch is not None and (len(f0) * hop_time) - start_time >= 0.08:
+            bass_inst.notes.append(
+                pretty_midi.Note(
+                    velocity=90,
+                    pitch=current_pitch,
+                    start=start_time,
+                    end=len(f0) * hop_time,
+                )
+            )
+
+        bass_inst.notes.sort(key=_get_note_start)
+        pm.instruments.append(bass_inst)
+        pm.write(str(output_midi_path))
+        return output_midi_path
+
+
+class TranscribeDrums:
+    """Transcribes drum transients across low/mid/high sub-bands to GM Channel 10."""
+
+    def execute(self, audio: AudioSignal, output_midi_path: Path) -> Path:
+        """Detects kicks, snares and hi-hats, generating a percussion MIDI file."""
+        output_midi_path = Path(output_midi_path).resolve()
+        output_midi_path.parent.mkdir(parents=True, exist_ok=True)
+
+        sr = audio.sample_rate.value
+        samples = audio.samples
+        nyquist = sr / 2.0
+
+        pm = pretty_midi.PrettyMIDI()
+        drum_inst = pretty_midi.Instrument(program=0, is_drum=True, name="Drums")
+
+        # 1. Low band for Kick Drum (Note 36)
+        low_sos = sp_signal.butter(4, min(150.0 / nyquist, 0.99), btype="lowpass", output="sos")
+        kick_band = sp_signal.sosfilt(low_sos, samples)
+        kick_onsets = librosa.onset.onset_detect(
+            y=kick_band, sr=sr, hop_length=512, backtrack=False, units="time"
+        )
+        for t in kick_onsets:
+            drum_inst.notes.append(
+                pretty_midi.Note(velocity=100, pitch=36, start=float(t), end=float(t + 0.1))
+            )
+
+        # 2. Mid band for Snare Drum (Note 38)
+        mid_low = max(200.0 / nyquist, 0.01)
+        mid_high = min(2000.0 / nyquist, 0.99)
+        if mid_low < mid_high:
+            mid_sos = sp_signal.butter(4, [mid_low, mid_high], btype="bandpass", output="sos")
+            snare_band = sp_signal.sosfilt(mid_sos, samples)
+            snare_onsets = librosa.onset.onset_detect(
+                y=snare_band, sr=sr, hop_length=512, backtrack=False, units="time"
+            )
+            for t in snare_onsets:
+                drum_inst.notes.append(
+                    pretty_midi.Note(velocity=95, pitch=38, start=float(t), end=float(t + 0.1))
+                )
+
+        # 3. High band for Closed Hi-Hat (Note 42)
+        high_sos = sp_signal.butter(4, max(3000.0 / nyquist, 0.01), btype="highpass", output="sos")
+        hihat_band = sp_signal.sosfilt(high_sos, samples)
+        hihat_onsets = librosa.onset.onset_detect(
+            y=hihat_band, sr=sr, hop_length=512, backtrack=False, units="time"
+        )
+        for t in hihat_onsets:
+            drum_inst.notes.append(
+                pretty_midi.Note(velocity=85, pitch=42, start=float(t), end=float(t + 0.08))
+            )
+
+        drum_inst.notes.sort(key=_get_note_start)
+        pm.instruments.append(drum_inst)
+        pm.write(str(output_midi_path))
+        return output_midi_path
+
+
+class TranscribeHarmonic:
+    """Transcribes harmonic stems (guitar, piano, other) using spectral peak tracking."""
+
+    def __init__(self, fmin: float = 65.0, fmax: float = 2000.0) -> None:
+        self._fmin = fmin
+        self._fmax = fmax
+
+    def execute(
+        self,
+        audio: AudioSignal,
+        output_midi_path: Path,
+        program_number: int = 0,
+        name: str = "Harmonic",
+    ) -> Path:
+        """Extracts prominent pitch peaks across frames and writes a polyphonic MIDI file."""
+        output_midi_path = Path(output_midi_path).resolve()
+        output_midi_path.parent.mkdir(parents=True, exist_ok=True)
+
+        sr = audio.sample_rate.value
+        samples = audio.samples
+        hop_length = 512
+        hop_time = hop_length / sr
+
+        pitches, mags = librosa.piptrack(
+            y=samples,
+            sr=sr,
+            fmin=self._fmin,
+            fmax=self._fmax,
+            hop_length=hop_length,
+        )
+
+        pm = pretty_midi.PrettyMIDI()
+        inst = pretty_midi.Instrument(program=program_number, is_drum=False, name=name)
+
+        n_frames = pitches.shape[1]
+        active_notes: dict[int, float] = {}
+        max_mag = float(np.max(mags)) if np.any(mags > 0) else 0.0
+        threshold = 0.15 * max_mag if max_mag > 0 else 1.0
+
+        for f_idx in range(n_frames):
+            t = f_idx * hop_time
+            frame_mags = mags[:, f_idx]
+            frame_pitches = pitches[:, f_idx]
+
+            peak_indices = np.where((frame_mags >= threshold) & (frame_pitches > 0))[0]
+            current_frame_notes: set[int] = set()
+
+            if len(peak_indices) > 0:
+                sorted_peaks = peak_indices[np.argsort(frame_mags[peak_indices])[-4:]]
+                for p_idx in sorted_peaks:
+                    midi_p = int(np.round(librosa.hz_to_midi(frame_pitches[p_idx])))
+                    if 21 <= midi_p <= 108:
+                        current_frame_notes.add(midi_p)
+
+            for note_p in list(active_notes.keys()):
+                if note_p not in current_frame_notes:
+                    note_start = active_notes.pop(note_p)
+                    if t - note_start >= 0.08:
+                        inst.notes.append(
+                            pretty_midi.Note(
+                                velocity=80,
+                                pitch=note_p,
+                                start=note_start,
+                                end=t,
+                            )
+                        )
+
+            for note_p in current_frame_notes:
+                if note_p not in active_notes:
+                    active_notes[note_p] = t
+
+        total_time = n_frames * hop_time
+        for note_p, note_start in active_notes.items():
+            if total_time - note_start >= 0.08:
+                inst.notes.append(
+                    pretty_midi.Note(
+                        velocity=80,
+                        pitch=note_p,
+                        start=note_start,
+                        end=total_time,
+                    )
+                )
+
+        inst.notes.sort(key=_get_note_start)
+        pm.instruments.append(inst)
+        pm.write(str(output_midi_path))
+        return output_midi_path
+
+
+@dataclass(frozen=True, slots=True)
+class TranscribeStemCommand:
+    """Input command to transcribe a specific audio stem to MIDI."""
+
+    stem_name: str
+    audio: AudioSignal
+    output_midi_path: Path
+
+
+class TranscribeStem:
+    """Dispatches transcription to the specialized stem transcriber based on stem name."""
+
+    def __init__(
+        self,
+        bass_transcriber: TranscribeBass | None = None,
+        drums_transcriber: TranscribeDrums | None = None,
+        harmonic_transcriber: TranscribeHarmonic | None = None,
+    ) -> None:
+        self._bass = bass_transcriber or TranscribeBass()
+        self._drums = drums_transcriber or TranscribeDrums()
+        self._harmonic = harmonic_transcriber or TranscribeHarmonic()
+
+    def execute(self, command: TranscribeStemCommand) -> Path:
+        """Executes stem transcription for bass, drums, or harmonic stems."""
+        stem = command.stem_name.lower().strip()
+        if stem == "bass":
+            return self._bass.execute(command.audio, command.output_midi_path)
+        if stem == "drums":
+            return self._drums.execute(command.audio, command.output_midi_path)
+        if stem == "guitar":
+            return self._harmonic.execute(
+                command.audio, command.output_midi_path, program_number=25, name="Guitar"
+            )
+        if stem == "piano":
+            return self._harmonic.execute(
+                command.audio, command.output_midi_path, program_number=0, name="Piano"
+            )
+        # Fallback for "other" or unmapped stem types
+        stem_title = stem.capitalize() if stem else "Other"
+        return self._harmonic.execute(
+            command.audio, command.output_midi_path, program_number=48, name=stem_title
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SynthesizeStemMidiCommand:
+    """Input command to render a MIDI file into an acoustic audio file."""
+
+    midi_path: Path
+    output_path: Path
+    sample_rate: SampleRate
+
+
+class SynthesizeStemMidi:
+    """Renders a MIDI file to an acoustic audio file using PrettyMIDI synthesis and AudioWriter."""
+
+    def __init__(self, writer: AudioWriterPort | None = None) -> None:
+        if writer is None:
+            from mus.voice_modeling.infrastructure.soundfile_audio_io import (  # noqa: PLC0415
+                SoundfileAudioIO,
+            )
+
+            self._writer: AudioWriterPort = SoundfileAudioIO()
+        else:
+            self._writer = writer
+
+    def execute(self, command: SynthesizeStemMidiCommand) -> Path:
+        """Synthesizes MIDI file and writes it to command.output_path."""
+        midi_path = Path(command.midi_path).resolve()
+        if not midi_path.exists():
+            raise FileNotFoundError(f"MIDI file not found at: {midi_path}")
+
+        pm = pretty_midi.PrettyMIDI(str(midi_path))
+        synth_samples = pm.synthesize(fs=command.sample_rate.value)
+        if len(synth_samples) == 0:
+            synth_samples = np.zeros(command.sample_rate.value, dtype=np.float64)
+
+        c_samples = np.ascontiguousarray(synth_samples, dtype=np.float64)
+        signal = AudioSignal(samples=c_samples, sample_rate=command.sample_rate)
+        self._writer.write(signal, command.output_path)
+        return command.output_path

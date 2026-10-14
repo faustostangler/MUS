@@ -4,6 +4,12 @@ from pathlib import Path
 import typer
 
 from mus.config import get_settings
+from mus.music_transcription.application.use_cases.transcribe_all_stems import (
+    SynthesizeStemMidi,
+    SynthesizeStemMidiCommand,
+    TranscribeStem,
+    TranscribeStemCommand,
+)
 from mus.music_transcription.application.use_cases.transcribe_contour import (
     TranscribeContour,
     TranscribeContourCommand,
@@ -54,25 +60,45 @@ def is_track_fully_processed(source: str, stems_dir: Path, history_file: Path) -
         target_dir = stems_dir / genre
         if target_dir.exists():
             for v_path in target_dir.glob("*vocals.mp3"):
-                synt_path = v_path.parent / f"{v_path.stem} - synt.mp3"
-                midi_path = v_path.parent / f"{v_path.stem}.mid"
-                if synt_path.exists() and midi_path.exists():
+                prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
+                stem_files = [
+                    f
+                    for f in target_dir.iterdir()
+                    if f.is_file()
+                    and f.name.startswith(f"{prefix} - ")
+                    and f.name.endswith(".mp3")
+                    and not f.name.endswith("- synt.mp3")
+                ]
+                if stem_files and all(
+                    f.with_suffix(".mid").exists() and (f.parent / f"{f.stem} - synt.mp3").exists()
+                    for f in stem_files
+                ):
                     return True
 
     # 2. Match by file path or local file name
     source_stem = Path(source).stem
     if stems_dir.exists():
         for v_path in stems_dir.rglob(f"*{source_stem}*vocals.mp3"):
-            synt_path = v_path.parent / f"{v_path.stem} - synt.mp3"
-            midi_path = v_path.parent / f"{v_path.stem}.mid"
-            if synt_path.exists() and midi_path.exists():
+            prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
+            stem_files = [
+                f
+                for f in v_path.parent.iterdir()
+                if f.is_file()
+                and f.name.startswith(f"{prefix} - ")
+                and f.name.endswith(".mp3")
+                and not f.name.endswith("- synt.mp3")
+            ]
+            if stem_files and all(
+                f.with_suffix(".mid").exists() and (f.parent / f"{f.stem} - synt.mp3").exists()
+                for f in stem_files
+            ):
                 return True
 
     return False
 
 
 @app.command()
-def run(  # noqa: PLR0915, PLR0917
+def run(  # noqa: PLR0912, PLR0915, PLR0917
     source: str | None = typer.Argument(
         None,
         help="YouTube URL, local audio file, or playlist.txt. If omitted, reads from playlist.",
@@ -220,5 +246,35 @@ def run(  # noqa: PLR0915, PLR0917
             )
         )
         typer.echo(f"✓ Resynthesized vocal stem saved to: {resynth_out}")
+
+        # Step 5: Multi-Stem Transcription & Resynthesis for remaining stems (ADR-003 D1, D2)
+        if to_midi and stems.other_stems:
+            transcribe_stem_uc = TranscribeStem()
+            synthesizer_uc = SynthesizeStemMidi(writer=writer)
+
+            for stem_name, stem_path in stems.other_stems.items():
+                stem_midi_path = stem_path.parent / f"{stem_path.stem}.mid"
+                stem_signal = reader.read(stem_path, target_rate=target_sr)
+
+                # Transcribe stem to MIDI
+                transcribe_stem_uc.execute(
+                    TranscribeStemCommand(
+                        stem_name=stem_name,
+                        audio=stem_signal,
+                        output_midi_path=stem_midi_path,
+                    )
+                )
+                typer.echo(f"✓ Transcribed {stem_name} stem to MIDI: {stem_midi_path}")
+
+                # Synthesize acoustic MP3 preview
+                stem_synt_path = stem_path.parent / f"{stem_path.stem} - synt.mp3"
+                synthesizer_uc.execute(
+                    SynthesizeStemMidiCommand(
+                        midi_path=stem_midi_path,
+                        output_path=stem_synt_path,
+                        sample_rate=target_sr,
+                    )
+                )
+                typer.echo(f"✓ Synthesized {stem_name} stem saved to: {stem_synt_path}")
 
     typer.echo("=== Pipeline Run Finished Successfully ===")
