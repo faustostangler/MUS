@@ -13,10 +13,9 @@ def _default_demucs_runner(cmd: list[str]) -> None:
         from demucs.separate import main as demucs_main  # noqa: PLC0415
     except ImportError as err:
         raise RuntimeError(
-            "Demucs is not installed in the active environment. "
-            "Install with 'uv sync --extra legacy'."
+            "Demucs is not installed in the active environment. Install with 'uv sync'."
         ) from err
-    demucs_main(cmd)
+    demucs_main(cmd)  # type: ignore[no-untyped-call]
 
 
 class DemucsStemSeparator(StemSeparatorPort):

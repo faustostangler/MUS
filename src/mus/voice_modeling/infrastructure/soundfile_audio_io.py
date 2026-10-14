@@ -44,19 +44,27 @@ class SoundfileAudioIO:
         return AudioSignal(samples=c_samples, sample_rate=target_rate)
 
     def write(self, signal: AudioSignal, path: Path) -> None:
-        """Atomically writes an AudioSignal as 24-bit PCM WAV."""
+        """Atomically writes an AudioSignal as 24-bit PCM WAV or 320kbps MP3."""
         path = Path(path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(f"{path.suffix}.tmp")
 
         try:
-            sf.write(
-                str(tmp_path),
-                signal.samples,
-                samplerate=signal.sample_rate.value,
-                format="WAV",
-                subtype="PCM_24",
-            )
+            if path.suffix.lower() == ".mp3":
+                sf.write(
+                    str(tmp_path),
+                    signal.samples,
+                    samplerate=signal.sample_rate.value,
+                    format="MP3",
+                )
+            else:
+                sf.write(
+                    str(tmp_path),
+                    signal.samples,
+                    samplerate=signal.sample_rate.value,
+                    format="WAV",
+                    subtype="PCM_24",
+                )
             os.replace(str(tmp_path), str(path))
         except Exception as e:
             if tmp_path.exists():

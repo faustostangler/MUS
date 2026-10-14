@@ -72,4 +72,46 @@ def test_ingest_and_separate_track_executes_pipeline(tmp_path: Path) -> None:
     result = use_case.execute(cmd)
 
     assert result.vocals_path.exists()
+    assert result.vocals_path.parent == tmp_path / "Jazz"
     assert "vid_123" in catalog.records
+
+
+def test_ingest_and_separate_track_sanitizes_genre_and_handles_empty(tmp_path: Path) -> None:
+    downloader = FakeDownloader()
+    separator = FakeSeparator()
+    catalog = FakeCatalog()
+
+    class CustomTagger(MetadataTaggerPort):
+        def __init__(self, genre: str) -> None:
+            self._genre = genre
+
+        def tag(self, raw_title: str) -> TrackMetadata:
+            return TrackMetadata(
+                video_id="vid_456",
+                title=raw_title,
+                artist="Artist",
+                track="Track",
+                genre=self._genre,
+            )
+
+    # Test sanitized slash in genre
+    use_case = IngestAndSeparateTrack(
+        downloader=downloader,
+        tagger=CustomTagger("Pop/Rock"),
+        separator=separator,
+        catalog=catalog,
+    )
+    cmd = IngestAndSeparateCommand(source="http://yt/1", output_dir=tmp_path)
+    result = use_case.execute(cmd)
+    assert result.vocals_path.parent == tmp_path / "Pop_Rock"
+
+    # Test empty genre falls back to Unknown
+    use_case_empty = IngestAndSeparateTrack(
+        downloader=downloader,
+        tagger=CustomTagger("   "),
+        separator=separator,
+        catalog=catalog,
+    )
+    cmd_empty = IngestAndSeparateCommand(source="http://yt/2", output_dir=tmp_path)
+    result_empty = use_case_empty.execute(cmd_empty)
+    assert result_empty.vocals_path.parent == tmp_path / "Unknown"

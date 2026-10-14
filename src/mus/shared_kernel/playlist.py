@@ -5,9 +5,7 @@ from pathlib import Path
 
 # Strict Regex: Starts with http:// or https://,
 # followed by YouTube domains (music., www., m., youtu.be, etc.)
-YOUTUBE_URL_REGEX = re.compile(
-    r"^https?:\/\/(?:[a-zA-Z0-9-]+\.)?(?:youtube\.com|youtu\.be)\/\S+"
-)
+YOUTUBE_URL_REGEX = re.compile(r"^https?:\/\/(?:[a-zA-Z0-9-]+\.)?(?:youtube\.com|youtu\.be)\/\S+")
 
 
 def extract_youtube_urls_from_text(content: str) -> list[str]:

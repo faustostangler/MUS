@@ -15,8 +15,7 @@ class YtDlpAudioDownloader(AudioDownloaderPort):
             import yt_dlp  # noqa: PLC0415
         except ImportError as err:
             raise RuntimeError(
-                "yt-dlp is not installed in the active environment. "
-                "Install with 'uv sync --extra legacy'."
+                "yt-dlp is not installed in the active environment. Install with 'uv sync'."
             ) from err
 
         output_dir = Path(output_dir).resolve()

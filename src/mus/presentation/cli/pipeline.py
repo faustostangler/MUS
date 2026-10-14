@@ -1,5 +1,4 @@
-"""Unified end-to-end pipeline CLI commands (ADR-001 D12)."""
-
+import re
 from pathlib import Path
 
 import typer
@@ -38,6 +37,38 @@ from mus.voice_modeling.infrastructure.pyworld_vocoder import PyWorldVocoder
 from mus.voice_modeling.infrastructure.soundfile_audio_io import SoundfileAudioIO
 
 app = typer.Typer(help="End-to-end ingestion, decomposition, and resynthesis pipeline.")
+
+
+def is_track_fully_processed(source: str, stems_dir: Path, history_file: Path) -> bool:
+    """Checks if a track has already been fully processed with all expected artifacts."""
+    catalog = JsonCatalogHistory(history_file=history_file)
+    tracks = catalog._cache.get("tracks", {})
+
+    # 1. Match by YouTube video ID in catalog history
+    vid_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", source)
+    video_id = vid_match.group(1) if vid_match else None
+
+    if video_id and video_id in tracks:
+        entry = tracks[video_id]
+        genre = entry.get("genre", "Unknown")
+        target_dir = stems_dir / genre
+        if target_dir.exists():
+            for v_path in target_dir.glob("*vocals.mp3"):
+                synt_path = v_path.parent / f"{v_path.stem} - synt.mp3"
+                midi_path = v_path.parent / f"{v_path.stem}.mid"
+                if synt_path.exists() and midi_path.exists():
+                    return True
+
+    # 2. Match by file path or local file name
+    source_stem = Path(source).stem
+    if stems_dir.exists():
+        for v_path in stems_dir.rglob(f"*{source_stem}*vocals.mp3"):
+            synt_path = v_path.parent / f"{v_path.stem} - synt.mp3"
+            midi_path = v_path.parent / f"{v_path.stem}.mid"
+            if synt_path.exists() and midi_path.exists():
+                return True
+
+    return False
 
 
 @app.command()
@@ -87,6 +118,13 @@ def run(  # noqa: PLR0915, PLR0917
     typer.echo(f"Total track(s) to process: {len(sources)}")
 
     for idx, target_source in enumerate(sources, start=1):
+        if is_track_fully_processed(target_source, output_dir / "stems", settings.HISTORY_FILE):
+            typer.secho(
+                f"\n=== [{idx}/{len(sources)}] ⚡ [Skipped] Already completed: {target_source} ===",
+                fg=typer.colors.YELLOW,
+            )
+            continue
+
         typer.echo(f"\n=== [{idx}/{len(sources)}] Starting MUS Pipeline for: {target_source} ===")
 
         # Step 1: Ingestion & Stem Separation
@@ -141,7 +179,7 @@ def run(  # noqa: PLR0915, PLR0917
 
         # Step 3: Symbolic Transcription (Track A: Monophonic Vocal Lead -> MIDI Choir Aahs GM 52)
         if to_midi:
-            midi_path = output_dir / f"{vocal_stem_path.stem}.mid"
+            midi_path = vocal_stem_path.parent / f"{vocal_stem_path.stem}.mid"
             transcribe_uc = TranscribeContour()
             sequence = transcribe_uc.execute(
                 TranscribeContourCommand(
@@ -155,7 +193,7 @@ def run(  # noqa: PLR0915, PLR0917
                 f"✓ Transcribed {len(sequence.notes)} notes to MIDI (GM 52 Choir Aahs): {midi_path}"
             )
 
-        # Step 4: Optional Parametric Modulation (Pitch Transpose & Vocal Tract Scale)
+        # Step 4: Parametric Modulation & Resynthesis (ADR-002 D2, D4)
         modulated_voice = voice
         if transpose_st is not None:
             shifted_f0 = transpose(modulated_voice.f0, Semitones(transpose_st))
@@ -172,15 +210,15 @@ def run(  # noqa: PLR0915, PLR0917
             )
             typer.echo(f"✓ Vocal tract scaled with alpha={scale_alpha:.2f}")
 
-        if transpose_st is not None or scale_alpha is not None:
-            resynth_out = output_dir / f"{vocal_stem_path.stem}_modulated.wav"
-            resynth_uc = ResynthesizeVoice(vocoder=vocoder, writer=writer)
-            resynth_uc.execute(
-                ResynthesizeVoiceCommand(
-                    voice=modulated_voice,
-                    output_path=resynth_out,
-                )
+        # Always synthesize and persist the vocal take as MP3 alongside stems (SPEC-002 S3)
+        resynth_out = vocal_stem_path.parent / f"{vocal_stem_path.stem} - synt.mp3"
+        resynth_uc = ResynthesizeVoice(vocoder=vocoder, writer=writer)
+        resynth_uc.execute(
+            ResynthesizeVoiceCommand(
+                voice=modulated_voice,
+                output_path=resynth_out,
             )
-            typer.echo(f"✓ Modulated vocal resynthesized and saved to: {resynth_out}")
+        )
+        typer.echo(f"✓ Resynthesized vocal stem saved to: {resynth_out}")
 
     typer.echo("=== Pipeline Run Finished Successfully ===")

@@ -17,10 +17,11 @@ dependencies = [
     "structlog>=24.1",
     "prometheus-client>=0.20",
     "setuptools<70",
+    "demucs>=4.0",
+    "yt-dlp>=2024.0",
+    "torch>=2.2",
+    "tqdm>=4.66",
 ]
-
-[project.optional-dependencies]
-legacy = ["demucs", "yt-dlp", "torch", "tqdm"]
 
 [dependency-groups]
 dev = [

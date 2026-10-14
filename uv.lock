@@ -793,6 +793,8 @@ name = "mus"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "demucs", version = "4.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "demucs", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "librosa" },
     { name = "numpy" },
     { name = "pretty-midi" },
@@ -804,15 +806,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "soundfile" },
     { name = "structlog" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-legacy = [
-    { name = "demucs", version = "4.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "demucs", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "torch" },
     { name = "tqdm" },
+    { name = "typer" },
     { name = "yt-dlp" },
 ]
 
@@ -829,7 +825,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "demucs", marker = "extra == 'legacy'" },
+    { name = "demucs", specifier = ">=4.0" },
     { name = "librosa", specifier = ">=0.10" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pretty-midi", specifier = ">=0.2.10" },
@@ -841,12 +837,11 @@ requires-dist = [
     { name = "setuptools", specifier = "<70" },
     { name = "soundfile", specifier = ">=0.12" },
     { name = "structlog", specifier = ">=24.1" },
-    { name = "torch", marker = "extra == 'legacy'" },
-    { name = "tqdm", marker = "extra == 'legacy'" },
+    { name = "torch", specifier = ">=2.2" },
+    { name = "tqdm", specifier = ">=4.66" },
     { name = "typer", specifier = ">=0.12" },
-    { name = "yt-dlp", marker = "extra == 'legacy'" },
+    { name = "yt-dlp", specifier = ">=2024.0" },
 ]
-provides-extras = ["legacy"]
 
 [package.metadata.requires-dev]
 dev = [
