@@ -1,4 +1,4 @@
-"""Tests for MusSettings configuration validation."""
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +14,12 @@ def test_mus_settings_defaults_and_validation() -> None:
     assert settings.OLLAMA_HOST == "http://localhost:11434"
     assert settings.OLLAMA_MODEL == "qwen2.5:latest"
     assert settings.PLAYLIST_FILE.name == "playlist.txt"
+    assert Path("./library") == settings.LIBRARY_DIR
+    assert Path("./library/cache") == settings.CACHE_DIR
+    assert settings.COOKIES_FILE is None
+    assert settings.BROWSER_COOKIES == "firefox"
+    assert settings.AUTO_EXTRACT_COOKIES is True
+    assert settings.COOKIE_CACHE_HOURS == 12
 
 
 def test_mus_settings_rejects_invalid_values() -> None:

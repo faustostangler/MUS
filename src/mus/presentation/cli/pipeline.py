@@ -61,11 +61,12 @@ def is_track_fully_processed(source: str, library_dir: Path, history_file: Path)
         genre = sanitize_genre(entry.get("genre", "unknown"))
         target_dir = library_dir / genre
         if target_dir.exists():
-            for v_path in target_dir.glob("*vocals.mp3"):
+            for v_path in target_dir.rglob("*vocals.mp3"):
                 prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
+                stem_dir = v_path.parent
                 stem_files = [
                     f
-                    for f in target_dir.iterdir()
+                    for f in stem_dir.iterdir()
                     if f.is_file()
                     and f.name.startswith(f"{prefix} - ")
                     and f.name.endswith(".mp3")
@@ -82,9 +83,10 @@ def is_track_fully_processed(source: str, library_dir: Path, history_file: Path)
     if library_dir.exists():
         for v_path in library_dir.rglob(f"*{source_stem}*vocals.mp3"):
             prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
+            stem_dir = v_path.parent
             stem_files = [
                 f
-                for f in v_path.parent.iterdir()
+                for f in stem_dir.iterdir()
                 if f.is_file()
                 and f.name.startswith(f"{prefix} - ")
                 and f.name.endswith(".mp3")
@@ -105,7 +107,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
         None,
         help="YouTube URL, local audio file, or playlist.txt. If omitted, reads from playlist.",
     ),
-    output_dir: Path = typer.Option(Path("./outputs"), "--out", "-o", help="Output directory"),
+    output_dir: Path = typer.Option(Path("./library"), "--out", "-o", help="Output directory"),
     to_midi: bool = typer.Option(True, "--midi/--no-midi", help="Transcribe vocal melody to MIDI"),
     bpm: float | None = typer.Option(
         None, "--bpm", help="Initial tempo BPM for transcription (auto-detected if omitted)"
@@ -123,7 +125,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
     """Runs the complete end-to-end pipeline from audio/URL to stems, MIDI, and modulated voice."""
     settings = get_settings()
     output_dir = output_dir.resolve()
-    library_dir = output_dir if output_dir.name == "library" else output_dir / "library"
+    library_dir = output_dir
     library_dir.mkdir(parents=True, exist_ok=True)
 
     sources: list[str] = []
@@ -188,7 +190,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
         reader = SoundfileAudioIO()
         writer = SoundfileAudioIO()
         vocoder = PyWorldVocoder()
-        cache = NpzVoiceCache(cache_dir=settings.OUTPUT_DIR / "cache")
+        cache = NpzVoiceCache(cache_dir=library_dir / "cache")
 
         target_sr = SampleRate(settings.SAMPLE_RATE)
         signal = reader.read(vocal_stem_path, target_rate=target_sr)

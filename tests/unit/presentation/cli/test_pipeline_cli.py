@@ -20,10 +20,11 @@ runner = CliRunner()
 
 
 def test_pipeline_run_outputs_synt_mp3_and_midi_in_genre_folder(tmp_path: Path) -> None:
-    # Set up mock stem directory structure
-    genre_dir = tmp_path / "library" / "rock"
-    genre_dir.mkdir(parents=True, exist_ok=True)
-    vocal_stem = genre_dir / "Band - Song - vocals.mp3"
+    # Set up mock stem directory structure inside track subfolder
+    genre_dir = tmp_path / "rock"
+    track_dir = genre_dir / "Band - Song"
+    track_dir.mkdir(parents=True, exist_ok=True)
+    vocal_stem = track_dir / "Band - Song - vocals.mp3"
     vocal_stem.touch()
 
     stems = SeparatedStems(vocals_path=vocal_stem, other_stems={})
@@ -64,25 +65,26 @@ def test_pipeline_run_outputs_synt_mp3_and_midi_in_genre_folder(tmp_path: Path) 
         preview_files = list(tmp_path.rglob("*_midi_preview*"))
         assert len(preview_files) == 0
 
-        # Assert MIDI file was saved inside the genre folder
-        expected_midi = genre_dir / "Band - Song - vocals.mid"
+        # Assert MIDI file was saved inside the track folder
+        expected_midi = track_dir / "Band - Song - vocals.mid"
         assert expected_midi.exists()
 
-        # Assert vocal resynthesis was called with .mp3 target inside genre folder
+        # Assert vocal resynthesis was called with .mp3 target inside track folder
         mock_resynth.assert_called_once()
         cmd_arg = mock_resynth.call_args[0][0]
-        assert cmd_arg.output_path == genre_dir / "Band - Song - vocals - mid.mp3"
+        assert cmd_arg.output_path == track_dir / "Band - Song - vocals - mid.mp3"
 
 
 def test_pipeline_run_skips_already_processed_track(tmp_path: Path) -> None:
-    # Set up mock stem directory structure with all completed artifacts
-    genre_dir = tmp_path / "library" / "rock"
-    genre_dir.mkdir(parents=True, exist_ok=True)
-    vocal_stem = genre_dir / "Band - Song - vocals.mp3"
+    # Set up mock stem directory structure with all completed artifacts in track folder
+    genre_dir = tmp_path / "rock"
+    track_dir = genre_dir / "Band - Song"
+    track_dir.mkdir(parents=True, exist_ok=True)
+    vocal_stem = track_dir / "Band - Song - vocals.mp3"
     vocal_stem.touch()
-    midi_file = genre_dir / "Band - Song - vocals.mid"
+    midi_file = track_dir / "Band - Song - vocals.mid"
     midi_file.touch()
-    synt_file = genre_dir / "Band - Song - vocals - mid.mp3"
+    synt_file = track_dir / "Band - Song - vocals - mid.mp3"
     synt_file.touch()
 
     with patch(
@@ -96,13 +98,14 @@ def test_pipeline_run_skips_already_processed_track(tmp_path: Path) -> None:
 
 
 def test_pipeline_run_transcribes_and_synthesizes_all_stems(tmp_path: Path) -> None:
-    genre_dir = tmp_path / "library" / "jazz"
-    genre_dir.mkdir(parents=True, exist_ok=True)
-    vocal_stem = genre_dir / "Artist - Tune - vocals.mp3"
+    genre_dir = tmp_path / "jazz"
+    track_dir = genre_dir / "Artist - Tune"
+    track_dir.mkdir(parents=True, exist_ok=True)
+    vocal_stem = track_dir / "Artist - Tune - vocals.mp3"
     vocal_stem.touch()
-    bass_stem = genre_dir / "Artist - Tune - bass.mp3"
+    bass_stem = track_dir / "Artist - Tune - bass.mp3"
     bass_stem.touch()
-    drums_stem = genre_dir / "Artist - Tune - drums.mp3"
+    drums_stem = track_dir / "Artist - Tune - drums.mp3"
     drums_stem.touch()
 
     stems = SeparatedStems(
@@ -156,20 +159,21 @@ def test_pipeline_run_transcribes_and_synthesizes_all_stems(tmp_path: Path) -> N
 
         # Assert SynthesizeStemMidi was called for each non-vocal stem
         synthesized_outputs = [call[0][0].output_path for call in mock_synth_stem.call_args_list]
-        assert genre_dir / "Artist - Tune - bass - mid.mp3" in synthesized_outputs
-        assert genre_dir / "Artist - Tune - drums - mid.mp3" in synthesized_outputs
+        assert track_dir / "Artist - Tune - bass - mid.mp3" in synthesized_outputs
+        assert track_dir / "Artist - Tune - drums - mid.mp3" in synthesized_outputs
 
 
 def test_pipeline_does_not_skip_if_other_stems_incomplete(tmp_path: Path) -> None:
-    genre_dir = tmp_path / "library" / "rock"
-    genre_dir.mkdir(parents=True, exist_ok=True)
-    vocal_stem = genre_dir / "Band - Song - vocals.mp3"
+    genre_dir = tmp_path / "rock"
+    track_dir = genre_dir / "Band - Song"
+    track_dir.mkdir(parents=True, exist_ok=True)
+    vocal_stem = track_dir / "Band - Song - vocals.mp3"
     vocal_stem.touch()
-    (genre_dir / "Band - Song - vocals.mid").touch()
-    (genre_dir / "Band - Song - vocals - mid.mp3").touch()
+    (track_dir / "Band - Song - vocals.mid").touch()
+    (track_dir / "Band - Song - vocals - mid.mp3").touch()
 
     # Bass stem exists as mp3, but neither bass.mid nor bass - mid.mp3 exist yet
-    bass_stem = genre_dir / "Band - Song - bass.mp3"
+    bass_stem = track_dir / "Band - Song - bass.mp3"
     bass_stem.touch()
 
     with patch(

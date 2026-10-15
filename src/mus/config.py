@@ -15,10 +15,11 @@ class MusSettings(BaseSettings):
         extra="ignore",
     )
 
-    LIBRARY_DIR: Path = Path("./outputs/library")
+    LIBRARY_DIR: Path = Path("./library")
+    CACHE_DIR: Path = Path("./library/cache")
     HISTORY_FILE: Path = Path("./data/history.json")
     PLAYLIST_FILE: Path = Path(__file__).resolve().parent / "data" / "playlist.txt"
-    OUTPUT_DIR: Path = Path("./outputs")
+    OUTPUT_DIR: Path = Path("./library")
 
     SAMPLE_RATE: int = 44100
     FRAME_PERIOD_MS: float = 5.0
@@ -38,6 +39,11 @@ class MusSettings(BaseSettings):
     OLLAMA_MODEL: str = "qwen2.5:latest"
 
     LOG_LEVEL: str = "INFO"
+
+    COOKIES_FILE: Path | None = None
+    BROWSER_COOKIES: str = "firefox"
+    AUTO_EXTRACT_COOKIES: bool = True
+    COOKIE_CACHE_HOURS: int = 12
 
     @model_validator(mode="after")
     def validate_invariants(self) -> "MusSettings":

@@ -193,8 +193,9 @@ enriched/
 *.sqlite
 
 
-# MUS vocal pipeline (ADR-001)
+# MUS vocal pipeline (ADR-001, ADR-006)
 /outputs/
+/library/
 sandbox/**/out/
 *.wav
 *.mp3
