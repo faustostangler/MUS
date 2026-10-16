@@ -45,6 +45,15 @@ class JsonCatalogHistory(CatalogHistoryPort):
             return audio_path.exists()
         return False
 
+    def get_entry(self, video_id: str) -> dict[str, Any] | None:
+        """Retrieves catalog history entry for a video_id if available."""
+        tracks = self._cache.get("tracks", {})
+        if isinstance(tracks, dict):
+            entry = tracks.get(video_id)
+            if isinstance(entry, dict):
+                return entry
+        return None
+
     def record(self, metadata: TrackMetadata, stems: SeparatedStems) -> None:
         """Records a processed track into the history store."""
         tracks = self._cache.setdefault("tracks", {})

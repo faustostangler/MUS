@@ -42,9 +42,11 @@ class OllamaMetadataTagger(MetadataTaggerPort):
         self,
         ollama_host: str = "http://localhost:11434",
         model: str = "qwen2.5:latest",
+        timeout: float = 120.0,
     ) -> None:
         self._host = ollama_host.rstrip("/")
         self._model = model
+        self._timeout = timeout
 
     def tag(self, raw_title: str) -> TrackMetadata:
         """Queries Ollama for track metadata, with instant heuristic fallback."""
@@ -69,7 +71,7 @@ class OllamaMetadataTagger(MetadataTaggerPort):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 response_text = result.get("response", "{}")
                 parsed = json.loads(response_text)

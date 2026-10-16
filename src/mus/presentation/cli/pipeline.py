@@ -60,8 +60,14 @@ def is_track_fully_processed(source: str, library_dir: Path, history_file: Path)
         entry = tracks[video_id]
         genre = sanitize_genre(entry.get("genre", "unknown"))
         target_dir = library_dir / genre
-        if target_dir.exists():
-            for v_path in target_dir.rglob("*vocals.mp3"):
+        track_name = entry.get("track", "")
+        search_dirs = [target_dir] if target_dir.exists() else []
+        if library_dir.exists() and library_dir not in search_dirs:
+            search_dirs.append(library_dir)
+        for s_dir in search_dirs:
+            for v_path in s_dir.rglob("*vocals.mp3"):
+                if track_name and track_name.lower() not in v_path.name.lower():
+                    continue
                 prefix = v_path.name.rsplit(" - vocals.mp3", 1)[0]
                 stem_dir = v_path.parent
                 stem_files = [
@@ -164,6 +170,7 @@ def run(  # noqa: PLR0912, PLR0915, PLR0917
         tagger = OllamaMetadataTagger(
             ollama_host=settings.OLLAMA_HOST,
             model=settings.OLLAMA_MODEL,
+            timeout=settings.OLLAMA_TIMEOUT_SECONDS,
         )
         downloader = YtDlpAudioDownloader()
         separator = DemucsStemSeparator(model_name="htdemucs_6s")

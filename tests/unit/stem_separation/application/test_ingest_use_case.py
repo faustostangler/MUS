@@ -47,6 +47,9 @@ class FakeCatalog(CatalogHistoryPort):
     def is_completed(self, video_id: str) -> bool:
         return video_id in self.records
 
+    def get_entry(self, video_id: str) -> dict[str, str] | None:
+        return None
+
     def record(self, metadata: TrackMetadata, stems: SeparatedStems) -> None:
         self.records[metadata.video_id] = metadata
 
@@ -118,3 +121,56 @@ def test_ingest_and_separate_track_sanitizes_genre_and_handles_empty(tmp_path: P
     result_empty = use_case_empty.execute(cmd_empty)
     assert result_empty.vocals_path.parent == tmp_path / "unknown" / "Artist - Track"
     assert (tmp_path / "unknown" / "Artist - Track.mp3").exists()
+
+
+def test_ingest_and_separate_downloads_to_staging_before_tagging_and_moving(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    class EventRecordingDownloader(AudioDownloaderPort):
+        def download(self, url: str, output_dir: Path) -> tuple[Path, str, str]:
+            events.append(f"download:{output_dir.name}")
+            assert output_dir == tmp_path / ".staging"
+            f = output_dir / "raw.mp3"
+            f.touch()
+            return f, "yt_999", "Queen - Bohemian Rhapsody"
+
+    class EventRecordingTagger(MetadataTaggerPort):
+        def tag(self, raw_title: str) -> TrackMetadata:
+            events.append("tag_metadata")
+            # Verify that the destination file has NOT yet been created/moved
+            assert not (tmp_path / "rock" / "Queen - Bohemian Rhapsody.mp3").exists()
+            return TrackMetadata(
+                video_id="yt_999",
+                title=raw_title,
+                artist="Queen",
+                track="Bohemian Rhapsody",
+                genre="Rock",
+            )
+
+    class EventRecordingSeparator(StemSeparatorPort):
+        def separate(self, audio_path: Path, output_dir: Path) -> SeparatedStems:
+            events.append("separate")
+            assert audio_path == tmp_path / "rock" / "Queen - Bohemian Rhapsody.mp3"
+            assert output_dir == tmp_path / "rock" / "Queen - Bohemian Rhapsody"
+            v = output_dir / "vocals.mp3"
+            v.touch()
+            return SeparatedStems(vocals_path=v, other_stems={})
+
+    catalog = FakeCatalog()
+    use_case = IngestAndSeparateTrack(
+        downloader=EventRecordingDownloader(),
+        tagger=EventRecordingTagger(),
+        separator=EventRecordingSeparator(),
+        catalog=catalog,
+    )
+
+    cmd = IngestAndSeparateCommand(
+        source="https://youtube.com/watch?v=yt_999",
+        output_dir=tmp_path,
+    )
+
+    stems = use_case.execute(cmd)
+    assert events == ["download:.staging", "tag_metadata", "separate"]
+    assert (tmp_path / "rock" / "Queen - Bohemian Rhapsody.mp3").exists()
+    assert stems.vocals_path.parent == tmp_path / "rock" / "Queen - Bohemian Rhapsody"
+    assert "yt_999" in catalog.records

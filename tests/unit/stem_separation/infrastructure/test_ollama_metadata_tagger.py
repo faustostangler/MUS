@@ -20,7 +20,8 @@ def test_parse_fallback_title_heuristics() -> None:
 
 def test_ollama_metadata_tagger_offline_fallback() -> None:
     # Points to non-existent port to force fallback heuristics
-    tagger = OllamaMetadataTagger(ollama_host="http://localhost:59999")
+    tagger = OllamaMetadataTagger(ollama_host="http://localhost:59999", timeout=120.0)
+    assert tagger._timeout == 120.0
     meta = tagger.tag("John Denver - Take Me Home, Country Roads [Official Video]")
     assert meta.artist == "John Denver"
     assert "Country Roads" in meta.track

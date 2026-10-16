@@ -37,6 +37,7 @@ class MusSettings(BaseSettings):
 
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:latest"
+    OLLAMA_TIMEOUT_SECONDS: float = 120.0
 
     LOG_LEVEL: str = "INFO"
 
@@ -58,6 +59,9 @@ class MusSettings(BaseSettings):
 
         if self.MAX_SEGMENT_SECONDS <= 0:
             raise ValueError("MAX_SEGMENT_SECONDS must be positive.")
+
+        if self.OLLAMA_TIMEOUT_SECONDS <= 0:
+            raise ValueError("OLLAMA_TIMEOUT_SECONDS must be positive.")
 
         return self
 

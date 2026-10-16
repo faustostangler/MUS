@@ -20,6 +20,7 @@ def test_mus_settings_defaults_and_validation() -> None:
     assert settings.BROWSER_COOKIES == "firefox"
     assert settings.AUTO_EXTRACT_COOKIES is True
     assert settings.COOKIE_CACHE_HOURS == 12
+    assert settings.OLLAMA_TIMEOUT_SECONDS == 120.0
 
 
 def test_mus_settings_rejects_invalid_values() -> None:
@@ -32,3 +33,6 @@ def test_mus_settings_rejects_invalid_values() -> None:
 
     with pytest.raises(ValueError):
         MusSettings(MAX_SEGMENT_SECONDS=-1.0)
+
+    with pytest.raises(ValueError):
+        MusSettings(OLLAMA_TIMEOUT_SECONDS=0.0)

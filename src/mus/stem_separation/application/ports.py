@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 from mus.stem_separation.domain.models import SeparatedStems, TrackMetadata
 
@@ -36,6 +37,10 @@ class CatalogHistoryPort(ABC):
     @abstractmethod
     def is_completed(self, video_id: str) -> bool:
         """Returns True if the track was already processed and verified on disk."""
+
+    @abstractmethod
+    def get_entry(self, video_id: str) -> dict[str, Any] | None:
+        """Retrieves catalog history entry for a video_id if available."""
 
     @abstractmethod
     def record(self, metadata: TrackMetadata, stems: SeparatedStems) -> None:

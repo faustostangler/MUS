@@ -12,7 +12,7 @@ from mus.stem_separation.application.ports import (
     MetadataTaggerPort,
     StemSeparatorPort,
 )
-from mus.stem_separation.domain.models import SeparatedStems
+from mus.stem_separation.domain.models import SeparatedStems, TrackMetadata
 
 
 def sanitize_genre(genre: str) -> str:
@@ -83,7 +83,8 @@ class IngestAndSeparateTrack:
             or list(cached_track_dir.glob(f"*{track_name}*vocals.mp3"))
             or list(cached_genre_dir.glob(f"*{canonical_name}*vocals.mp3"))
             or list(cached_genre_dir.glob(f"*{track_name}*vocals.mp3"))
-            or list(base_output_dir.glob(f"*{track_name}*vocals.mp3"))
+            or list(base_output_dir.rglob(f"*{canonical_name}*vocals.mp3"))
+            or list(base_output_dir.rglob(f"*{track_name}*vocals.mp3"))
         )
         if not existing_vocals:
             return None
@@ -91,9 +92,23 @@ class IngestAndSeparateTrack:
         v_path = existing_vocals[0]
         cached_track_dir.mkdir(parents=True, exist_ok=True)
         if v_path.parent != cached_track_dir:
-            target_v = cached_track_dir / v_path.name
-            shutil.move(str(v_path), str(target_v))
-            v_path = target_v
+            source_dir = v_path.parent
+            for s in list(source_dir.glob(f"*{canonical_name}*")) + list(
+                source_dir.glob(f"*{track_name}*")
+            ):
+                target_s = cached_track_dir / s.name
+                if not target_s.exists():
+                    shutil.move(str(s), str(target_s))
+            v_path = cached_track_dir / v_path.name
+            # Migrate master full track mp3 if found in old parent
+            for m in [
+                source_dir.parent / f"{canonical_name}.mp3",
+                source_dir.parent / f"{track_name}.mp3",
+                source_dir / f"{canonical_name}.mp3",
+                source_dir / f"{track_name}.mp3",
+            ]:
+                if m.exists() and m != cached_genre_dir / f"{canonical_name}.mp3":
+                    shutil.move(str(m), str(cached_genre_dir / f"{canonical_name}.mp3"))
 
         other_stems = {
             s.stem.split(" - ")[-1]: s
@@ -103,6 +118,95 @@ class IngestAndSeparateTrack:
             and not s.name.endswith("- synt.mp3")
         }
         return SeparatedStems(vocals_path=v_path, other_stems=other_stems)
+
+    def _download_or_resolve_source(
+        self, source: str | Path, staging_dir: Path
+    ) -> tuple[Path, str, str]:
+        """Resolves source into local audio file, video_id, and raw title."""
+        if isinstance(source, str) and (
+            source.startswith("http://") or source.startswith("https://")
+        ):
+            return self._downloader.download(source, staging_dir)
+
+        audio_path = Path(source).resolve()
+        raw_title = audio_path.stem
+        vid_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", str(source))
+        video_id = vid_match.group(1) if vid_match else re.sub(r"[^\w\-]", "_", raw_title)[:32]
+        return audio_path, video_id, raw_title
+
+    def _resolve_metadata(self, video_id: str, raw_title: str) -> TrackMetadata:
+        """Resolves TrackMetadata using catalog history first, then metadata tagger."""
+        catalog_entry = None
+        if hasattr(self._catalog, "get_entry"):
+            catalog_entry = self._catalog.get_entry(video_id)
+
+        if catalog_entry:
+            c_genre = str(catalog_entry.get("genre") or "").strip().lower()
+            c_artist = str(catalog_entry.get("artist") or "").strip().lower()
+            if c_genre and c_genre != "other" and c_artist and c_artist != "unknown artist":
+                return TrackMetadata(
+                    video_id=video_id,
+                    title=str(catalog_entry.get("title") or raw_title),
+                    artist=str(catalog_entry.get("artist") or "Unknown Artist"),
+                    track=str(catalog_entry.get("track") or raw_title),
+                    genre=str(catalog_entry.get("genre") or "Other"),
+                )
+
+        tagger_meta = self._tagger.tag(raw_title)
+        return TrackMetadata(
+            video_id=video_id,
+            title=tagger_meta.title,
+            artist=tagger_meta.artist,
+            track=tagger_meta.track,
+            genre=tagger_meta.genre,
+        )
+
+    def _resolve_stems_output(
+        self,
+        audio_path: Path,
+        track_stems_dir: Path,
+        genre_dir: Path,
+        canonical_title: str,
+    ) -> SeparatedStems:
+        """Resolves existing stems or runs separator."""
+        expected_vocals = track_stems_dir / f"{canonical_title} - vocals.mp3"
+        legacy_vocals = track_stems_dir / f"{audio_path.stem} - vocals.mp3"
+        fallback_vocals = genre_dir / f"{audio_path.stem} - vocals.mp3"
+
+        if expected_vocals.exists():
+            other_stems = {
+                s.stem.split(" - ")[-1]: s
+                for s in track_stems_dir.glob(f"{canonical_title} - *.mp3")
+                if s != expected_vocals
+                and not s.name.endswith("- mid.mp3")
+                and not s.name.endswith("- synt.mp3")
+            }
+            return SeparatedStems(vocals_path=expected_vocals, other_stems=other_stems)
+
+        if legacy_vocals.exists():
+            other_stems = {
+                s.stem.split(" - ")[-1]: s
+                for s in track_stems_dir.glob(f"{audio_path.stem} - *.mp3")
+                if s != legacy_vocals
+                and not s.name.endswith("- mid.mp3")
+                and not s.name.endswith("- synt.mp3")
+            }
+            return SeparatedStems(vocals_path=legacy_vocals, other_stems=other_stems)
+
+        if fallback_vocals.exists():
+            for f in genre_dir.glob(f"{audio_path.stem} - *"):
+                shutil.move(str(f), str(track_stems_dir / f.name))
+            target_v = track_stems_dir / fallback_vocals.name
+            other_stems = {
+                s.stem.split(" - ")[-1]: s
+                for s in track_stems_dir.glob(f"{audio_path.stem} - *.mp3")
+                if s != target_v
+                and not s.name.endswith("- mid.mp3")
+                and not s.name.endswith("- synt.mp3")
+            }
+            return SeparatedStems(vocals_path=target_v, other_stems=other_stems)
+
+        return self._separator.separate(audio_path, track_stems_dir)
 
     def execute(self, command: IngestAndSeparateCommand) -> SeparatedStems:
         """Executes two-phase ingestion and separation into genre-organized directory."""
@@ -114,16 +218,12 @@ class IngestAndSeparateTrack:
         if cached_stems is not None:
             return cached_stems
 
-        # Phase 1: Ingestion & Tagging
-        if isinstance(source, str) and (
-            source.startswith("http://") or source.startswith("https://")
-        ):
-            audio_path, _video_id, raw_title = self._downloader.download(source, base_output_dir)
-        else:
-            audio_path = Path(source).resolve()
-            raw_title = audio_path.stem
+        staging_dir = base_output_dir / ".staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
 
-        metadata = self._tagger.tag(raw_title)
+        # Phase 1: Download to staging before genre determination
+        audio_path, video_id, raw_title = self._download_or_resolve_source(source, staging_dir)
+        metadata = self._resolve_metadata(video_id, raw_title)
 
         # Transition: VRAM cleanup before invoking heavy GPU Demucs (ADR-001 D9)
         if self._vram_cleaner is not None:
@@ -137,41 +237,24 @@ class IngestAndSeparateTrack:
         canonical_title = build_canonical_title(metadata.artist, metadata.track, default=raw_title)
         target_audio_path = genre_dir / f"{canonical_title}.mp3"
 
-        # Relocate and rename downloaded audio file into the genre directory
+        # Relocate and rename downloaded audio file from staging into the genre directory
         if audio_path != target_audio_path and audio_path.exists():
             shutil.move(str(audio_path), str(target_audio_path))
             audio_path = target_audio_path
+
+        # Clean up empty staging directory
+        if staging_dir.exists():
+            try:
+                if not any(staging_dir.iterdir()):
+                    staging_dir.rmdir()
+            except Exception:
+                pass
 
         # Phase 2: Separation into track-encapsulated directory
         track_stems_dir = genre_dir / canonical_title
         track_stems_dir.mkdir(parents=True, exist_ok=True)
 
-        expected_vocals = track_stems_dir / f"{audio_path.stem} - vocals.mp3"
-        fallback_vocals = genre_dir / f"{audio_path.stem} - vocals.mp3"
-
-        if expected_vocals.exists():
-            other_stems = {
-                s.stem.split(" - ")[-1]: s
-                for s in track_stems_dir.glob(f"{audio_path.stem} - *.mp3")
-                if s != expected_vocals
-                and not s.name.endswith("- mid.mp3")
-                and not s.name.endswith("- synt.mp3")
-            }
-            stems = SeparatedStems(vocals_path=expected_vocals, other_stems=other_stems)
-        elif fallback_vocals.exists():
-            # Migrate legacy stems from genre_dir to track_stems_dir
-            for f in genre_dir.glob(f"{audio_path.stem} - *"):
-                shutil.move(str(f), str(track_stems_dir / f.name))
-            other_stems = {
-                s.stem.split(" - ")[-1]: s
-                for s in track_stems_dir.glob(f"{audio_path.stem} - *.mp3")
-                if s != expected_vocals
-                and not s.name.endswith("- mid.mp3")
-                and not s.name.endswith("- synt.mp3")
-            }
-            stems = SeparatedStems(vocals_path=expected_vocals, other_stems=other_stems)
-        else:
-            stems = self._separator.separate(audio_path, track_stems_dir)
+        stems = self._resolve_stems_output(audio_path, track_stems_dir, genre_dir, canonical_title)
 
         # Record into history
         self._catalog.record(metadata, stems)
